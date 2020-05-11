@@ -53,6 +53,9 @@ print("Global var is %s (Norm of the vector is %f Sum is %f)" % (str(all_var), n
 
 if args.save:
     np.savez("%s/statsall" % os.path.dirname(fname),all_mean=all_mean,all_var=all_var)
+    np.savetxt("%s/mean.txt" % os.path.dirname(fname) ,all_mean);
+    np.savetxt("%s/var.txt" % os.path.dirname(fname) ,all_var);
+
     for fname in fnames:
         print("Standardizing %s " % fname)
         data = np.load(fname)

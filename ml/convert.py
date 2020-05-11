@@ -15,9 +15,9 @@ import os
 #context_length = 93
 #inst_length = 17
 context_length = 94
-inst_length = 33
+inst_length = 39
                                                                                                                      
-files = glob.glob("/raid/data/tflynn/gccvec/models/*.pt")                                                                                
+files = glob.glob("../data_spec/models/*.pt")                                                                                
 files.sort(key=os.path.getmtime)       
 
 for loaded_model_name in files:
@@ -27,4 +27,4 @@ for loaded_model_name in files:
     traced_script_module = torch.jit.trace(simnet, torch.rand(1, context_length * inst_length))
     output = traced_script_module(torch.ones(1, context_length * inst_length))
     print(type(simnet),output)
-    traced_script_module.save("/raid/data/tflynn/gccvec/converted_models/%s.pt" % os.path.basename(loaded_model_name))
+    traced_script_module.save("../data_spec/converted_models/%s.pt" % os.path.basename(loaded_model_name))

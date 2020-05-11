@@ -210,13 +210,22 @@ struct ROB {
   }
 };
 
+float * read_numbers(char *fname, int sz){
+  float * ret = new float[sz];
+  ifstream in(fname);
+  printf("Trying to read from %s\n", fname);
+  for(int i=0;i<sz;i++)
+    in >> ret[i];
+  return ret;
+}
+
 int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
-  if (argc != 4) {
-    cerr << "Usage: ./simulator <trace> <lat module> <class module>" << endl;
+  if (argc < 4) {
+    cerr << "Usage: ./simulator <trace> <lat module> <class module> <variances (optional)>" << endl;
 #else
-  if (argc != 3) {
-    cerr << "Usage: ./simulator <trace> <lat module>" << endl;
+  if (argc < 3) {
+    cerr << "Usage: ./simulator <trace> <lat module> <variances (optional)> " << endl;
 #endif
     return 0;
   }
@@ -252,10 +261,19 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
+  float * varPtr = NULL;
+#ifdef CLASSIFY
+  if (argc > 4)
+#else
+  if (argc > 3)
+#endif
+    varPtr = read_numbers(argv[3],TD_SIZE);
+  
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
     mean[i] = 0.0;
 #endif
+    if (varPtr) factor[i] = sqrtf(varPtr[i]);
     default_val[i] = -mean[i] / factor[i];
     cout << default_val[i] << " ";
   }
@@ -303,7 +321,7 @@ int main(int argc, char *argv[]) {
       int int_finish_lat = newInst->trueCompleteTick;
       int_fetch_lat = newInst->trueFetchTick;
 #else
-      // Predict fetch and completion time.
+      // Perdict fetch and completion time.
       gettimeofday(&start, NULL);
       std::vector<torch::jit::IValue> inputs;
       //input.data_ptr<c10::ScalarType::Float>();

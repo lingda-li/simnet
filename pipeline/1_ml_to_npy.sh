@@ -5,4 +5,4 @@
 
 cd ../data_spec
 rm *.npz
-python ../pipeline/ml-to-npy-0.py test_1m.ml
+python ../dp/2_ml-to-npy.py test_1m.ml

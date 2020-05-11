@@ -2,16 +2,15 @@ from subprocess import Popen, PIPE
 
 import glob                                                                                                          
 import os                                                                                                                                                     
-files = glob.glob("/raid/data/tflynn/gccvec/converted_models/*.pt")   
+files = glob.glob("../data_spec/converted_models/*.pt")   
 files.sort(key=os.path.getmtime)
 
 for fname in files:
     print(fname,end='')
-    cmd = ["../tools/simulator", 
-           "/raid/data/tflynn/gccvec/gccvec_1m.tr",
+    cmd = ["../sim/build/simulator", 
+           "../data_spec/test_1m.tr",
            fname,
-           "/raid/data/tflynn/gccvec/mean.txt",
-           "/raid/data/tflynn/gccvec/var.txt"]
+           "../data_spec/var.txt"]
     print("Executing  %s" % " ".join(cmd))
     process = Popen(cmd, stdout=PIPE)
     (output, err) = process.communicate()

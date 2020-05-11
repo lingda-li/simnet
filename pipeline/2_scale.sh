@@ -4,4 +4,4 @@
 #source activate topaz
 
 cd ../data_spec
-python ../pipeline/scale.py --save ./train_test_1m.ml*npz
+python ../dp/3_scale.py --save ./train_test_1m.ml*npz

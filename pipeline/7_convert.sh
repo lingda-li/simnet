@@ -5,4 +5,4 @@
 
 rm ../data_spec/converted_models/*.pt
 cd ../data_spec
-python ../pipeline/convert.py
+python ../ml/convert.py

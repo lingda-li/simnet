@@ -5,4 +5,4 @@
 
 cd ..
 
-python pipeline/make_sim_input.py data_spec/test_1m.ml -1 > data_spec/test_1m.tr
+python dp/make_sim_input.py data_spec/test_1m.ml -1 > data_spec/test_1m.tr

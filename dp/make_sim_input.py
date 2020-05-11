@@ -21,9 +21,9 @@ with open(fname) as f:
         vals = [ int(s) for s in line.rstrip().split(' ') ]
         feat = make_feature_from_instr(vals)
         if use_mean:
-            feat[2:] = (feat[2:] - fs['all_mean'][2:]) / np.sqrt(fs['all_var'][2:])
-        else
-            feat[2:] = feat[2:] / np.sqrt(fs['all_var'][2:])
+            feat[4:] = (feat[4:] - fs['all_mean'][4:]) / np.sqrt(fs['all_var'][4:])
+        else:
+            feat[4:] = feat[4:] / np.sqrt(fs['all_var'][4:])
         print(' '.join(map(str, feat)))
 
         if nlines == num:
