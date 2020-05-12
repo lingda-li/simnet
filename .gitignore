@@ -8,3 +8,6 @@
 *#
 __pycache__
 sim/build
+dp/buildROB
+dp/buildCxt
+dp/buildSim

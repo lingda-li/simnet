@@ -7,6 +7,9 @@ using namespace std;
 #define CONTEXT_SIZE 96
 #define TICK_STEP 500
 
+#define SRCREGNUM 8
+#define DSTREGNUM 6
+
 typedef long unsigned Tick;
 typedef long unsigned Addr;
 
@@ -38,8 +41,10 @@ struct Inst {
   Addr addrEnd;
   int iwalkDepth[3];
   Addr iwalkAddr[3];
+  int iWritebacks[2];
   int dwalkDepth[3];
   Addr dwalkAddr[3];
+  int dWritebacks[2];
   Tick inTick;
   Tick outTick;
   Tick tickNum;
@@ -72,14 +77,18 @@ struct Inst {
     trace >> dec >> size >> depth;
     if (isAddr)
       addrEnd = addr + size - 1;
-    else
+    else {
+      addrEnd = 0;
       depth = -1;
+    }
     for (int i = 0; i < 3; i++)
       trace >> dwalkDepth[i];
     for (int i = 0; i < 3; i++) {
       trace >> hex >> dwalkAddr[i];
       assert(dwalkAddr[i] == 0 || dwalkDepth[i] != -1);
     }
+    for (int i = 0; i < 2; i++)
+      trace >> dWritebacks[i];
     assert(
         (dwalkDepth[0] == -1 && dwalkDepth[1] == -1 && dwalkDepth[2] == -1) ||
         isAddr);
@@ -94,9 +103,12 @@ struct Inst {
       trace >> hex >> iwalkAddr[i];
       assert(iwalkAddr[i] == 0 || iwalkDepth[i] != -1);
     }
+    for (int i = 0; i < 2; i++)
+      trace >> iWritebacks[i];
     assert(!trace.eof());
     return true;
   }
+
   void combineOp() {
     if (isMisPredict) {
       assert(isCondCtrl || isUncondCtrl || isSquashAfter);
@@ -134,9 +146,11 @@ struct Inst {
         op = -8;
     }
   }
+
+  // dump instruction for ML input.
   void dump(Tick tick, bool first, int is_addr, Addr begin, Addr end, Addr PC,
             Addr *iwa, Addr *dwa) {
-    assert(iwa && dwa);
+    assert(first || (iwa && dwa));
     if (first)
       cout << inTick - tick;
     else
@@ -169,6 +183,9 @@ struct Inst {
           iconflict++;
       }
     cout << iconflict << " ";
+    // Instruction cache writebacks.
+    for (int i = 0; i < 2; i++)
+      cout << iWritebacks[i] << " ";
     // Data cache depth.
     cout << depth << " ";
     // Data address conflict.
@@ -192,6 +209,24 @@ struct Inst {
           dconflict++;
       }
     cout << dconflict << " ";
+    // Data cache writebacks.
+    for (int i = 0; i < 2; i++)
+      cout << dWritebacks[i] << " ";
+  }
+
+  // dump instruction for simulator input.
+  void dumpSim() {
+    cout << pc << " ";
+    cout << isAddr << " ";
+    cout << addr << " ";
+    cout << addrEnd << " ";
+    // Instruction walk addrs.
+    for (int i = 0; i < 3; i++)
+      cout << iwalkAddr[i] << " ";
+    // Data walk addrs.
+    for (int i = 0; i < 3; i++)
+      cout << dwalkAddr[i] << " ";
+    cout << "\n";
   }
 };
 
