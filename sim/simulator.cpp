@@ -9,6 +9,13 @@
 
 using namespace std;
 
+#define CLASSIFY
+//#define DEBUG
+//#define VERBOSE
+//#define RUN_TRUTH
+#define NO_MEAN
+#define GPU
+
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define ROBSIZE 94
@@ -19,14 +26,14 @@ using namespace std;
 #define ML_SIZE (TD_SIZE * ROBSIZE)
 #define MIN_COMP_LAT 6
 
-//#define CLASSIFY
-//#define DEBUG
-//#define VERBOSE
-//#define RUN_TRUTH
-#define NO_MEAN
-#define GPU
+#define ILINEC_BIT 8
+#define IPAGEC_BIT 13
+#define DADDRC_BIT 17
+#define DLINEC_BIT 18
+#define DPAGEC_BIT 22
 
 typedef long unsigned Tick;
+typedef long unsigned Addr;
 
 Tick Num = 0;
 
@@ -82,7 +89,6 @@ struct Inst {
   int isCondCtrl;
   int isUncondCtrl;
   int isMemBar;
-  int pc;
   int srcNum;
   int destNum;
   int srcClass[MAXSRCREGNUM];
@@ -97,6 +103,12 @@ struct Inst {
   Tick trueCompleteTick;
   int trueFetchClass;
   int trueCompleteClass;
+  Addr pc;
+  int isAddr;
+  Addr addr;
+  Addr addrEnd;
+  Addr iwalkAddr[3];
+  Addr dwalkAddr[3];
   // Read one instruction.
   bool read(ifstream &trace) {
     //Num++;
@@ -115,17 +127,25 @@ struct Inst {
     assert(!trace.eof());
     return true;
   }
-  bool read_train_data(ifstream &trace) {
+  bool read_train_data(ifstream &trace, ifstream &aux_trace) {
     trace >> trueFetchClass >> trueFetchTick;
     trace >> trueCompleteClass >> trueCompleteTick;
-    if (trace.eof())
+    aux_trace >> pc;
+    if (trace.eof()) {
+      assert(aux_trace.eof());
       return false;
+    }
     assert(trueCompleteTick >= MIN_COMP_LAT);
     for (int i = 4; i < TD_SIZE; i++)
-      trace >>  train_data[i];
+      trace >> train_data[i];
     train_data[0] = train_data[1] = 0;
     train_data[2] = train_data[3] = 0;
-    assert(!trace.eof());
+    aux_trace >> isAddr >> addr >> addrEnd;
+    for (int i = 0; i < 3; i++)
+      aux_trace >> iwalkAddr[i];
+    for (int i = 0; i < 3; i++)
+      aux_trace >> dwalkAddr[i];
+    assert(!trace.eof() && !aux_trace.eof());
     //for (int i = 0; i < TD_SIZE; i++)
     //  cout << train_data[i] << " ";
     //cout << "\n";
@@ -190,7 +210,35 @@ struct ROB {
   }
   void make_train_data(float *context) {
     int num = 0;
+    Addr pc = insts[dec(tail)].pc;
+    int isAddr = insts[dec(tail)].isAddr;
+    Addr addr = insts[dec(tail)].addr;
+    Addr addrEnd = insts[dec(tail)].addrEnd;
+    Addr iwalkAddr[3], dwalkAddr[3];
+    for (int i = 0; i < 3; i++) {
+      iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
+      dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
+    }
     for (int i = dec(tail); i != dec(head); i = dec(i)) {
+      if (i != dec(tail)) {
+        // Update context instruction bits.
+        insts[i].train_data[ILINEC_BIT] = (insts[i].pc == pc);
+        int conflict = 0;
+        for (int j = 0; j < 3; j++) {
+          if (insts[i].iwalkAddr[i] != 0 && insts[i].iwalkAddr[i] == iwalkAddr[i])
+            conflict++;
+        }
+        insts[i].train_data[IPAGEC_BIT] = conflict;
+        insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd);
+        insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f));
+        conflict = 0;
+        if (isAddr && insts[i].isAddr)
+          for (int j = 0; j < 3; j++) {
+            if (insts[i].dwalkAddr[i] != 0 && insts[i].dwalkAddr[i] == dwalkAddr[i])
+              conflict++;
+          }
+        insts[i].train_data[DPAGEC_BIT] = conflict;
+      }
       std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
       num++;
     }
@@ -198,7 +246,7 @@ struct ROB {
       std::copy(default_val, default_val + TD_SIZE, context + i * TD_SIZE);
     }
   }
-  void update_train_data(Tick tick) {
+  void update_fetch_cycle(Tick tick) {
     for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
       insts[i].train_data[0] += tick / factor[0];
       if (insts[i].train_data[0] >= 9 / factor[0])
@@ -210,8 +258,8 @@ struct ROB {
   }
 };
 
-float * read_numbers(char *fname, int sz){
-  float * ret = new float[sz];
+float *read_numbers(char *fname, int sz) {
+  float *ret = new float[sz];
   ifstream in(fname);
   printf("Trying to read from %s\n", fname);
   for(int i=0;i<sz;i++)
@@ -221,11 +269,11 @@ float * read_numbers(char *fname, int sz){
 
 int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
-  if (argc < 4) {
-    cerr << "Usage: ./simulator <trace> <lat module> <class module> <variances (optional)>" << endl;
+  if (argc < 5) {
+    cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <class module> <variances (optional)>" << endl;
 #else
-  if (argc < 3) {
-    cerr << "Usage: ./simulator <trace> <lat module> <variances (optional)> " << endl;
+  if (argc < 4) {
+    cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <variances (optional)> " << endl;
 #endif
     return 0;
   }
@@ -234,10 +282,15 @@ int main(int argc, char *argv[]) {
     cerr << "Cannot open trace file.\n";
     return 0;
   }
+  ifstream aux_trace(argv[2]);
+  if (!aux_trace.is_open()) {
+    cerr << "Cannot open auxiliary trace file.\n";
+    return 0;
+  }
   torch::jit::script::Module lat_module;
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
-    lat_module = torch::jit::load(argv[2]);
+    lat_module = torch::jit::load(argv[3]);
 #ifdef GPU
     lat_module.to(torch::kCUDA);
 #endif
@@ -250,7 +303,7 @@ int main(int argc, char *argv[]) {
   torch::jit::script::Module cla_module;
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
-    cla_module = torch::jit::load(argv[3]);
+    cla_module = torch::jit::load(argv[4]);
 #ifdef GPU
     cla_module.to(torch::kCUDA);
 #endif
@@ -261,19 +314,23 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
-  float * varPtr = NULL;
+  float *varPtr = NULL;
 #ifdef CLASSIFY
-  if (argc > 4)
+  if (argc > 5)
+    varPtr = read_numbers(argv[5], TD_SIZE);
 #else
-  if (argc > 3)
+  if (argc > 4)
+    varPtr = read_numbers(argv[4], TD_SIZE);
 #endif
-    varPtr = read_numbers(argv[3],TD_SIZE);
-  
+
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
     mean[i] = 0.0;
 #endif
-    if (varPtr) factor[i] = sqrtf(varPtr[i]);
+    if (varPtr) {
+      cout << "Use input factors.\n";
+      factor[i] = sqrtf(varPtr[i]);
+    }
     default_val[i] = -mean[i] / factor[i];
     cout << default_val[i] << " ";
   }
@@ -310,7 +367,7 @@ int main(int argc, char *argv[]) {
     int int_fetch_lat;
     while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) {
       Inst *newInst = rob->add();
-      if (!newInst->read_train_data(trace)) {
+      if (!newInst->read_train_data(trace, aux_trace)) {
         eof = true;
         rob->tail = rob->dec(rob->tail);
         break;
@@ -321,12 +378,12 @@ int main(int argc, char *argv[]) {
       int int_finish_lat = newInst->trueCompleteTick;
       int_fetch_lat = newInst->trueFetchTick;
 #else
-      // Perdict fetch and completion time.
+      // Predict fetch and completion time.
       gettimeofday(&start, NULL);
       std::vector<torch::jit::IValue> inputs;
       //input.data_ptr<c10::ScalarType::Float>();
       if (curTick != lastFetchTick) {
-        rob->update_train_data(curTick - lastFetchTick);
+        rob->update_fetch_cycle(curTick - lastFetchTick);
       }
       rob->make_train_data(inputPtr);
       //cout << input << "\n";
@@ -417,6 +474,7 @@ int main(int argc, char *argv[]) {
   double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 
   trace.close();
+  aux_trace.close();
   cout << inst_num << " instructions finish by " << (curTick - 1) << "\n";
   cout << "Time: " << total_time << "\n";
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
@@ -425,9 +483,9 @@ int main(int argc, char *argv[]) {
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << "\n";
   cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
-  cout << "Model: " << argv[2] << " " << argv[3] << "\n";
+  cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
-  cout << "Lat Model: " << argv[2] << "\n";
+  cout << "Lat Model: " << argv[3] << "\n";
 #endif
 #ifdef RUN_TRUTH
   cout << "Truth" << "\n";
