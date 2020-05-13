@@ -9,7 +9,7 @@
 
 using namespace std;
 
-#define CLASSIFY
+//#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
@@ -225,7 +225,7 @@ struct ROB {
         insts[i].train_data[ILINEC_BIT] = (insts[i].pc == pc);
         int conflict = 0;
         for (int j = 0; j < 3; j++) {
-          if (insts[i].iwalkAddr[i] != 0 && insts[i].iwalkAddr[i] == iwalkAddr[i])
+          if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
             conflict++;
         }
         insts[i].train_data[IPAGEC_BIT] = conflict;
@@ -234,7 +234,7 @@ struct ROB {
         conflict = 0;
         if (isAddr && insts[i].isAddr)
           for (int j = 0; j < 3; j++) {
-            if (insts[i].dwalkAddr[i] != 0 && insts[i].dwalkAddr[i] == dwalkAddr[i])
+            if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
               conflict++;
           }
         insts[i].train_data[DPAGEC_BIT] = conflict;
