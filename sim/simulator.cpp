@@ -9,7 +9,7 @@
 
 using namespace std;
 
-//#define CLASSIFY
+#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
@@ -138,8 +138,8 @@ struct Inst {
     assert(trueCompleteTick >= MIN_COMP_LAT);
     for (int i = 4; i < TD_SIZE; i++)
       trace >> train_data[i];
-    train_data[0] = train_data[1] = 0;
-    train_data[2] = train_data[3] = 0;
+    train_data[0] = train_data[1] = 0.0;
+    train_data[2] = train_data[3] = 0.0;
     aux_trace >> isAddr >> addr >> addrEnd;
     for (int i = 0; i < 3; i++)
       aux_trace >> iwalkAddr[i];
@@ -222,22 +222,22 @@ struct ROB {
     for (int i = dec(tail); i != dec(head); i = dec(i)) {
       if (i != dec(tail)) {
         // Update context instruction bits.
-        insts[i].train_data[ILINEC_BIT] = (insts[i].pc == pc);
+        insts[i].train_data[ILINEC_BIT] = insts[i].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
         int conflict = 0;
         for (int j = 0; j < 3; j++) {
           if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
             conflict++;
         }
-        insts[i].train_data[IPAGEC_BIT] = conflict;
-        insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd);
-        insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f));
+        insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
+        insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
+        insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
         conflict = 0;
         if (isAddr && insts[i].isAddr)
           for (int j = 0; j < 3; j++) {
             if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
               conflict++;
           }
-        insts[i].train_data[DPAGEC_BIT] = conflict;
+        insts[i].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
       }
       std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
       num++;
@@ -322,15 +322,15 @@ int main(int argc, char *argv[]) {
   if (argc > 4)
     varPtr = read_numbers(argv[4], TD_SIZE);
 #endif
+  if (varPtr)
+    cout << "Use input factors.\n";
 
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
-    mean[i] = 0.0;
+    mean[i] = -0.0;
 #endif
-    if (varPtr) {
-      cout << "Use input factors.\n";
+    if (varPtr)
       factor[i] = sqrtf(varPtr[i]);
-    }
     default_val[i] = -mean[i] / factor[i];
     cout << default_val[i] << " ";
   }
