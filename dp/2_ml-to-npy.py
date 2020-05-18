@@ -61,7 +61,7 @@ with open(fname) as f:
         if ((nlines % iter_num) == 0):
             print("So far have %d" % nlines)
             x = np.array(all_feats)
-            np.savez_compressed("train_" + fname + str(idx), x=x)
+            np.savez_compressed(fname + ".t" + str(idx), x=x)
             all_feats = []
             lengths = []
             idx = idx + 1
@@ -70,4 +70,4 @@ with open(fname) as f:
 if all_feats:
     print("The last one has %d" % (nlines - 1))
     x = np.array(all_feats)
-    np.savez_compressed("train_" + fname + str(idx), x=x)
+    np.savez_compressed(fname + ".t" + str(idx), x=x)

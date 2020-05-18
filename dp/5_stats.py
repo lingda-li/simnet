@@ -6,6 +6,7 @@ from sortedcontainers import SortedList
 from input_format import *
 
 nlines = 1
+bad_lines = 0
 
 all_regs = SortedList()
 all_instr_types = SortedList()
@@ -27,7 +28,11 @@ for i in range(1, len(sys.argv)):
     print("read ", fname)
     with open(fname) as f:
         for line in f:
-            vals = [int(s) for s in line.rstrip().split(' ')]
+            try:
+                vals = [int(s) for s in line.rstrip().split(' ')]
+            except:
+                bad_lines += 1
+                continue
 
             ctxt_len = len(split_instr(vals))
             if ctxt_len not in all_context_lengths:
@@ -36,8 +41,8 @@ for i in range(1, len(sys.argv)):
             instr_type = get_instr_type(vals)
             time_out = get_time_out(vals)
             time_in = get_time_in(vals)
-            pc = get_instr_pc(vals)
-            depth = get_depth(vals)
+            pc = get_fetch_pcoffset(vals)
+            depth = get_data_depth(vals)
             fetch_depth = get_fetch_depth(vals)
 
             src_reg_count = get_n_src_regs(vals)
@@ -116,3 +121,4 @@ print("Vals seen for 'Dest register type':",all_dst_reg_types, "Len is %d" % len
 print("Vals seen for 'Dest register index':",all_dst_reg_indices, "Len is %d" % len(all_dst_reg_indices))
 print("Vals seen for 'Register':",all_regs, "Len is %d" % len(all_regs))
 print("Vals seen for 'PC':",all_pcs, "Len is %d" % len(all_pcs))
+print("Bad lines: ", bad_lines)
