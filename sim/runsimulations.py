@@ -1,14 +1,20 @@
 from subprocess import Popen, PIPE
 
-import glob                                                                                                          
-import os                                                                                                                                                     
+import glob
+import sys
+import os
+
+tr_file_name = sys.argv[1]
+aux_file_name = sys.argv[2]
+
 files = glob.glob("../data_spec/converted_models/*.pt")   
 files.sort(key=os.path.getmtime)
 
 for fname in files:
     print(fname,end='')
     cmd = ["../sim/build/simulator", 
-           "../data_spec/test_1m.tr",
+           tr_file_name,
+           aux_file_name,
            fname,
            "../data_spec/var.txt"]
     print("Executing  %s" % " ".join(cmd))
