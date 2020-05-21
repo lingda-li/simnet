@@ -8,7 +8,7 @@ from itertools import product
 import pickle
 from sklearn import preprocessing
 np.random.seed(0)
-from models_n import *
+from models import *
 
 #epoch_num = 1
 epoch_num = 100
