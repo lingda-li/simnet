@@ -13,10 +13,11 @@ from models import *
 #epoch_num = 1
 epoch_num = 100
 #saved_model_name = ""
-saved_model_name = "spec_cnn_3p_latonly_l64_64_042020"
-data_set_name = "data_spec"
-batchnum = 16 * 16 * 4
-batchsize = 32 * 1024
+saved_model_name = "specdc_cnn_3p_latonly_l64_64_052120"
+data_set_name = "data"
+batchnum = 16 * 16 * 2
+#batchsize = 32 * 1024
+batchsize = 32 * 1024 * 2
 print_threshold = 16
 out_fetch = False
 out_comp = False
@@ -35,6 +36,11 @@ x[:,0:4] = 0
 print(x.shape)
 print(y.shape)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(torch.cuda.device_count(), " GPUs, ", device)
+
+x = x[0:int((batchnum+0.5)*batchsize),]
+y = y[0:int((batchnum+0.5)*batchsize),]
 x = torch.from_numpy(x.astype('f'))
 y = torch.from_numpy(y.astype('f'))
 x_test = x[batchnum*batchsize:int((batchnum+0.5)*batchsize),]
@@ -43,13 +49,12 @@ print("Train with ", batchnum*batchsize, ", test with", 0.5*batchsize)
 
 loss = nn.MSELoss()
 simnet = CNN3_P(2, 64, 5, 64, 5, 64, 5, 256, 400)
+if torch.cuda.device_count() > 1:
+    simnet = nn.DataParallel(simnet)
+simnet.to(device)
 optimizer = torch.optim.Adam(simnet.parameters())
 values = []
 test_values = []
-
-device = torch.device("cuda:12" if torch.cuda.is_available() else "cpu")
-print(device)
-simnet.to(device)
 
 for i in range(epoch_num):
     print(i, ":", flush=True, end=' ')
