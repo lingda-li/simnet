@@ -13,15 +13,16 @@ from models import *
 #epoch_num = 1
 epoch_num = 100
 #saved_model_name = ""
-saved_model_name = "spec_cnn_3_claonly_l64_042720"
-data_set_name = "data_spec"
-batchnum = 16 * 16 * 4
-batchsize = 32 * 1024
+saved_model_name = "specdc_cnn_3p_claonly_l64_64_052420"
+data_set_name = "data"
+batchnum = 16 * 16 * 2
+#batchsize = 32 * 1024
+batchsize = 32 * 1024 * 2
 print_threshold = 16
 out_fetch = False
 out_comp = False
 
-f = np.load(data_set_name + "/ntotalall.npz")
+f = np.load(data_set_name + "/totalall.npz")
 fs = np.load(data_set_name + "/statsall.npz")
 x = f['x']
 
@@ -39,6 +40,11 @@ x[:,0:4] = 0
 print(x.shape)
 print(y.shape)
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(torch.cuda.device_count(), " GPUs, ", device)
+
+x = x[0:int((batchnum+0.5)*batchsize),]
+y = y[0:int((batchnum+0.5)*batchsize),]
 x = torch.from_numpy(x.astype('f'))
 y = torch.from_numpy(y.astype(int))
 x_test = x[batchnum*batchsize:int((batchnum+0.5)*batchsize),]
@@ -46,14 +52,13 @@ y_test = y[batchnum*batchsize:int((batchnum+0.5)*batchsize),]
 print("Train with ", batchnum*batchsize, ", test with", 0.5*batchsize)
 
 loss = nn.CrossEntropyLoss()
-simnet = CNN3(20, 5, 64, 5, 64, 5, 256, 400)
+simnet = CNN3_P(20, 64, 5, 64, 5, 64, 5, 256, 400)
+if torch.cuda.device_count() > 1:
+    simnet = nn.DataParallel(simnet)
+simnet.to(device)
 optimizer = torch.optim.Adam(simnet.parameters())
 values = []
 test_values = []
-
-device = torch.device("cuda:12" if torch.cuda.is_available() else "cpu")
-print(device)
-simnet.to(device)
 
 for i in range(epoch_num):
     print(i, ":", flush=True, end=' ')
@@ -91,4 +96,7 @@ for i in range(epoch_num):
 print(values)
 print(test_values)
 if saved_model_name != "":
-  torch.save(simnet, 'models/' + saved_model_name)
+    if torch.cuda.device_count() > 1:
+        torch.save(simnet.module, 'models/' + saved_model_name)
+    else:
+        torch.save(simnet, 'models/' + saved_model_name)

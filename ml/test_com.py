@@ -12,7 +12,7 @@ from sklearn import preprocessing
 from IPython.core.display import display, HTML
 matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
-from models_n import *
+from models import *
 
 class_model_name = "spec_cnn_3_claonly_l64_042720"
 lat_model_name = "spec_cnn_3_latonly_l64_042720"

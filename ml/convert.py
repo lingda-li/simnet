@@ -7,8 +7,8 @@ import sys
 from itertools import product
 import pickle
 np.random.seed(0)
-import glob                                                                                                          
-import os                                                                                                            
+import glob
+import os
 
 #context_length = 96
 #inst_length = 10
@@ -16,9 +16,9 @@ import os
 #inst_length = 17
 context_length = 94
 inst_length = 39
-                                                                                                                     
-files = glob.glob("../data_spec/models/*.pt")                                                                                
-files.sort(key=os.path.getmtime)       
+
+files = glob.glob("models/*.pt")
+files.sort(key=os.path.getmtime)
 
 for loaded_model_name in files:
     simnet = torch.load(loaded_model_name, map_location='cpu')

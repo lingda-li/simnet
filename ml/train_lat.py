@@ -65,7 +65,6 @@ for i in range(epoch_num):
         x_train_now = x[didx*batchsize:(didx+1)*batchsize,]
         y_train_now = y[didx*batchsize:(didx+1)*batchsize,]
         x_train_now = x_train_now.to(device)
-        #y_train_now = y_train_now.view(-1)
         y_train_now = y_train_now.to(device)
 
         output = simnet(x_train_now)
@@ -89,4 +88,7 @@ for i in range(epoch_num):
 print(values)
 print(test_values)
 if saved_model_name != "":
-  torch.save(simnet, 'models/' + saved_model_name)
+    if torch.cuda.device_count() > 1:
+        torch.save(simnet.module, 'models/' + saved_model_name)
+    else:
+        torch.save(simnet, 'models/' + saved_model_name)
