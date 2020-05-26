@@ -279,6 +279,7 @@ def get_fetch_walk_depth(vals):
         ret.append(vals[i] + 1)
     return ret
 
+# FIXME: this actually includes page conflict and writeback.
 def get_fetch_pagec(vals):
     ret = []
     n_src = get_n_src_regs(vals)
@@ -310,6 +311,7 @@ def get_data_walk_depth(vals):
         ret.append(vals[i] + 1)
     return ret
 
+# FIXME: this actually includes page conflict and writeback.
 def get_data_pagec(vals):
     ret = []
     n_src = get_n_src_regs(vals)
