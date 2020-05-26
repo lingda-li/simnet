@@ -3,4 +3,4 @@
 #module load anaconda2
 #source activate topaz
 
-python ../ml/convert.py
+python ../ml/convert.py models converted_models
