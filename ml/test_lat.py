@@ -12,21 +12,22 @@ from sklearn import preprocessing
 from IPython.core.display import display, HTML
 matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
-from models_n import *
+from models import *
 
-loaded_model_name = "spec_cnn_3_latonly_l64_042720"
-data_set_name = "data_spec"
+loaded_model_name = "specdc_cnn_3_latonly_l64_64_052120_cpu"
+data_set_name = "data"
 inst_type = -2
 #inst_type = -1
 #inst_type = 25
 #inst_type = 26
-batchnum = 16 * 16 * 4
-batchsize = 32 * 1024
+batchnum = 16 * 16 * 2
+batchsize = 32 * 1024 * 2
 pre_scale = True
 use_mean = False
 #use_mean = True
 out_fetch = False
 out_comp = False
+use_cuda = False
 
 if pre_scale:
   fs = np.load(data_set_name + "/statsall.npz")
@@ -65,15 +66,26 @@ print(y.shape)
 x_test = torch.from_numpy(x.astype('f'))
 y_test = torch.from_numpy(y.astype('f'))
 
-
-simnet = torch.load('models/' + loaded_model_name, map_location='cpu')
+if use_cuda:
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  simnet = torch.load('models/' + loaded_model_name, map_location='cuda')
+else:
+  simnet = torch.load('models/' + loaded_model_name, map_location='cpu')
 output = simnet(x_test)
 simnet.eval()
 loss = nn.MSELoss()
+if use_cuda:
+  y_test = y_test.to(device)
+  torch.save(simnet.module, 'models/' + loaded_model_name + '_cpu')
 value = loss(output,y_test)
 print(value.data)
-output = output.detach().numpy()
-target = y_test.detach().numpy()
+if use_cuda:
+  output = output.cpu().detach().numpy()
+  target = y_test.cpu().detach().numpy()
+else:
+  output = output.detach().numpy()
+  target = y_test.detach().numpy()
+
 
 print(target)
 print(output)

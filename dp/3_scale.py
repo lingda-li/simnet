@@ -29,7 +29,6 @@ for fname in fnames:
     data = x
     #y = data['y'].astype(np.float32)
     #data = np.concatenate((y, x), axis=1)
-
     print(data.shape)
     for i in range(context_num):
         all_sum += np.sum(data[:, inst_length*i:inst_length*(i+1)], axis=0)
@@ -52,9 +51,17 @@ print("Global mean is %s (Norm of the vector is %f)" % (str(all_mean), np.linalg
 print("Global var is %s (Norm of the vector is %f Sum is %f)" % (str(all_var), np.linalg.norm(all_var), np.sum(all_var)))
 
 if args.save:
-    np.savez("%s/statsall" % os.path.dirname(fname),all_mean=all_mean,all_var=all_var)
-    np.savetxt("%s/mean.txt" % os.path.dirname(fname) ,all_mean);
-    np.savetxt("%s/var.txt" % os.path.dirname(fname) ,all_var);
+    path = os.path.basename(os.getcwd())
+    dirName = 'stats'
+    if not os.path.exists(dirName):
+        print('creating directory.')
+        os.mkdir(dirName)
+    else:
+        print('directory exists.')
+
+    np.savez("%s/statsall" % dirName,all_mean=all_mean,all_var=all_var)
+    np.savetxt("%s/mean.txt" % dirName ,all_mean)
+    np.savetxt("%s/var.txt" % dirName ,all_var)
 
     for fname in fnames:
         print("Standardizing %s " % fname)
@@ -71,4 +78,4 @@ if args.save:
         print("Saving...")
         #split_data = np.hsplit(data,[2])
         #np.savez_compressed("%s/normall_%s" % os.path.split(fname), x=split_data[1], y=split_data[0], l=l)
-        np.savez_compressed("%s/normall_%s" % os.path.split(fname), x=data)
+        np.savez_compressed("normall_%s" % fname, x=data)

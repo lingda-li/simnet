@@ -3,5 +3,4 @@
 #module load anaconda2
 #source activate topaz
 
-rm data/*.npz
-python dp/2_ml-to-npy.py data/all.mlu
+../dp/buildROB $1.txt > $1.ml

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 src_reg_num = 8
 dst_reg_num = 6

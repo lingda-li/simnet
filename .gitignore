@@ -8,6 +8,8 @@
 *#
 __pycache__
 data
+models
+log
 sim/build
 dp/buildROB
 dp/buildCxt
