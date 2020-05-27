@@ -14,7 +14,7 @@ matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
 
-loaded_model_name = "specdc_cnn_3_latonly_l64_64_052120_cpu"
+loaded_model_name = "specdc_cnn_3p_latonly_l64_64_052120"
 data_set_name = "data"
 inst_type = -2
 #inst_type = -1
@@ -27,7 +27,8 @@ use_mean = False
 #use_mean = True
 out_fetch = False
 out_comp = False
-use_cuda = False
+use_cuda = True
+#use_cuda = False
 
 if pre_scale:
   fs = np.load(data_set_name + "/statsall.npz")

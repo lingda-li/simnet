@@ -14,19 +14,21 @@ matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
 
-class_model_name = "spec_cnn_3_claonly_l64_042720"
-lat_model_name = "spec_cnn_3_latonly_l64_042720"
-data_set_name = "data_spec"
+class_model_name = "specdc_cnn_3_claonly_l64_052420"
+lat_model_name = "specdc_cnn_3_latonly_l64_64_052120_cpu"
+data_set_name = "data"
 inst_type = -2
 #inst_type = -1
 #inst_type = 25
 #inst_type = 26
-batchnum = 16 * 16 * 4
-batchsize = 32 * 1024
+batchnum = 16 * 16 * 2
+batchsize = 32 * 1024 * 2
 use_mean = False
 #use_mean = True
 out_fetch = False
 out_comp = False
+#use_cuda = True
+use_cuda = False
 
 fs = np.load(data_set_name + "/statsall.npz")
 
@@ -64,12 +66,20 @@ print(y.shape)
 
 x_test = torch.from_numpy(x.astype('f'))
 
-simnet = torch.load('models/' + class_model_name, map_location='cpu')
+if use_cuda:
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  simnet = torch.load('models/' + class_model_name, map_location='cuda')
+else:
+  simnet = torch.load('models/' + class_model_name, map_location='cpu')
 output_all = simnet(x_test)
 simnet.eval()
 print(output_all)
 
-lat_simnet = torch.load('models/' + lat_model_name, map_location='cpu')
+if use_cuda:
+  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+  simnet = torch.load('models/' + lat_model_name, map_location='cuda')
+else:
+  lat_simnet = torch.load('models/' + lat_model_name, map_location='cpu')
 lat_output_all = lat_simnet(x_test)
 lat_simnet.eval()
 lat_output_all = lat_output_all.detach().numpy()

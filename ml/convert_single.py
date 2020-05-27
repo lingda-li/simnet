@@ -1,11 +1,8 @@
 import math
 import numpy as np
+import sys
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from itertools import product
-import pickle
-np.random.seed(0)
 from models import *
 
 #context_length = 96
@@ -15,12 +12,12 @@ from models import *
 context_length = 94
 inst_length = 39
 
-loaded_model_name = "specdc_cnn_3_latonly_l64_64_052120_cpu"
+loaded_model_name = sys.argv[1]
 
-simnet = torch.load('models/' + loaded_model_name, map_location='cpu')
+simnet = torch.load(loaded_model_name, map_location='cpu')
 simnet.eval()
 
 traced_script_module = torch.jit.trace(simnet, torch.rand(1, context_length * inst_length))
 output = traced_script_module(torch.ones(1, context_length * inst_length))
 print(output)
-traced_script_module.save('models/' + loaded_model_name + '.pt')
+traced_script_module.save(loaded_model_name + '.pt')
