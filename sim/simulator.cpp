@@ -13,6 +13,7 @@ using namespace std;
 //#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
+//#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
 
@@ -146,6 +147,7 @@ struct Inst {
     for (int i = 0; i < 3; i++)
       aux_trace >> dwalkAddr[i];
     assert(!trace.eof() && !aux_trace.eof());
+    //cout << "in: ";
     //for (int i = 0; i < TD_SIZE; i++)
     //  cout << train_data[i] << " ";
     //cout << "\n";
@@ -356,6 +358,8 @@ int main(int argc, char *argv[]) {
     // Retire instructions.
     int retired = rob->retire_until(curTick);
     inst_num += retired;
+    //if (inst_num >= 10)
+    //  break;
     //if (inst_num)
     //  cout << ".";
 #ifdef DEBUG
@@ -386,7 +390,9 @@ int main(int argc, char *argv[]) {
         rob->update_fetch_cycle(curTick - lastFetchTick);
       }
       rob->make_train_data(inputPtr);
-      //cout << input << "\n";
+#ifdef DUMP_ML_INPUT
+      cout << input << "\n";
+#endif
 #ifdef GPU
       inputs.push_back(input.cuda());
 #else
@@ -432,6 +438,10 @@ int main(int argc, char *argv[]) {
       //std::cout << curTick << ": ";
       //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
       //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
+#endif
+#ifdef DUMP_ML_INPUT
+      int_finish_lat = newInst->trueCompleteTick;
+      int_fetch_lat = newInst->trueFetchTick;
 #endif
       newInst->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
       newInst->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
