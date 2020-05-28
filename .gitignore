@@ -7,7 +7,7 @@
 *~
 *#
 __pycache__
-data
+data*
 models
 log
 sim/build

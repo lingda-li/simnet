@@ -9,7 +9,7 @@
 
 using namespace std;
 
-#define CLASSIFY
+//#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH

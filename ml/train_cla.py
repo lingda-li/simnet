@@ -12,11 +12,9 @@ from models import *
 
 #epoch_num = 1
 epoch_num = 100
-#saved_model_name = ""
-saved_model_name = "specdc_cnn_3p_claonly_l64_64_052420"
-data_set_name = "data"
-batchnum = 16 * 16 * 2
-#batchsize = 32 * 1024
+saved_model_name = sys.argv[1]
+data_set_name = sys.argv[2]
+batchnum = int(sys.argv[3])
 batchsize = 32 * 1024 * 2
 print_threshold = 16
 out_fetch = False

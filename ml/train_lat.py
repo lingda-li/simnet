@@ -1,3 +1,4 @@
+import sys
 import os
 import time
 import numpy as np
@@ -12,11 +13,9 @@ from models import *
 
 #epoch_num = 1
 epoch_num = 100
-#saved_model_name = ""
-saved_model_name = "specdc_cnn_3p_latonly_l64_64_052120"
-data_set_name = "data"
-batchnum = 16 * 16 * 2
-#batchsize = 32 * 1024
+saved_model_name = sys.argv[1]
+data_set_name = sys.argv[2]
+batchnum = int(sys.argv[3])
 batchsize = 32 * 1024 * 2
 print_threshold = 16
 out_fetch = False
@@ -48,7 +47,7 @@ y_test = y[batchnum*batchsize:int((batchnum+0.5)*batchsize),]
 print("Train with ", batchnum*batchsize, ", test with", 0.5*batchsize)
 
 loss = nn.MSELoss()
-simnet = CNN3_P(2, 64, 5, 64, 5, 64, 5, 256, 400)
+simnet = CNN3(2, 5, 64, 5, 64, 5, 256, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
