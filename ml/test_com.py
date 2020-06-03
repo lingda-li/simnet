@@ -1,3 +1,4 @@
+import sys
 import os
 import math
 import matplotlib.pyplot as plt
@@ -14,15 +15,14 @@ matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
 
-class_model_name = "specdc_cnn_3_claonly_l64_052420"
-lat_model_name = "specdc_cnn_3_latonly_l64_64_052120_cpu"
-data_set_name = "data"
+lat_model_name = sys.argv[1]
+class_model_name = sys.argv[2]
+data_set_name = sys.argv[3]
 inst_type = -2
 #inst_type = -1
 #inst_type = 25
 #inst_type = 26
-batchnum = 16 * 16 * 2
-batchsize = 32 * 1024 * 2
+
 use_mean = False
 #use_mean = True
 out_fetch = False

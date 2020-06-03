@@ -1,3 +1,4 @@
+import sys
 import os
 import math
 import matplotlib.pyplot as plt
@@ -14,21 +15,20 @@ matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
 
-loaded_model_name = "specdc_cnn_3p_latonly_l64_64_052120"
-data_set_name = "data"
+loaded_model_name = sys.argv[1]
+data_set_name = sys.argv[2]
 inst_type = -2
 #inst_type = -1
 #inst_type = 25
 #inst_type = 26
-batchnum = 16 * 16 * 2
-batchsize = 32 * 1024 * 2
+
 pre_scale = True
 use_mean = False
 #use_mean = True
 out_fetch = False
 out_comp = False
-use_cuda = True
-#use_cuda = False
+#use_cuda = True
+use_cuda = False
 
 if pre_scale:
   fs = np.load(data_set_name + "/statsall.npz")
