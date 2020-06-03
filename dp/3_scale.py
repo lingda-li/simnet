@@ -10,6 +10,7 @@ use_mean = False
 parser = argparse.ArgumentParser(description="Scale dataset stored as compress numpy files")
 parser.add_argument('--save', action='store_true',default=False)
 parser.add_argument('--stats', nargs=1, default="")
+parser.add_argument('--dirName',type=str,default=".")
 parser.add_argument('fnames', nargs='*')
 args = parser.parse_args()
 
@@ -58,9 +59,9 @@ print("Global var is %s (Norm of the vector is %f Sum is %f)" % (str(all_var), n
 
 if args.save:
     if args.stats == "":
-        np.savez("statsall" % dirName,all_mean=all_mean,all_var=all_var)
-        np.savetxt("mean.txt" % dirName,all_mean)
-        np.savetxt("var.txt" % dirName,all_var)
+        np.savez("%s/statsall" % args. dirName,all_mean=all_mean,all_var=all_var)
+        np.savetxt("%s/mean.txt" % args.dirName,all_mean)
+        np.savetxt("%s/var.txt" % args.dirName,all_var)
 
     for fname in fnames:
         print("Standardizing %s " % fname)
