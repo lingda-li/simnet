@@ -14,10 +14,7 @@ num = int(sys.argv[2])
 nlines = 1
 
 if pre_scale:
-    if len(sys.argv) > 3:
-        fs = np.load(sys.argv[3])
-    else:
-        fs = np.load("data_spec/statsall.npz")
+    fs = np.load(sys.argv[3])
 
 with open(fname) as f:
     for line in f:

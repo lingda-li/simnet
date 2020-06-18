@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 
-import numpy as np
 import sys
+import argparse
+import numpy as np
 from input_format import *
 
 context_length = 94
@@ -19,7 +20,6 @@ def make_feature_from_context(vals): # Vals is all instructions concatenated.
             feat_from_instr = make_feature_from_instr(instrs[i])
             #print('feat_from_instr len is' , len(feat_from_instr))
             #print(feat_from_instr)
-            #print(len(feat_from_instr))
             assert len(feat_from_instr) == inst_length
             feat += feat_from_instr
         else:
@@ -27,7 +27,14 @@ def make_feature_from_context(vals): # Vals is all instructions concatenated.
     return feat, inst_num # inst_length*context_length
 
 
-fname = sys.argv[1]
+parser = argparse.ArgumentParser(description="Make ML dataset")
+parser.add_argument('--num', type=int, nargs=1, default=0)
+parser.add_argument('fname', nargs='*')
+args = parser.parse_args()
+
+fname = args.fname[0]
+num = args.num[0]
+print("Make ML dataset for", fname, "with", num, "instructions")
 
 nlines = 1
 idx = 0
@@ -35,7 +42,6 @@ bad_lines = 0
 bad_content = 0
 
 all_feats = []
-lengths = []
 with open(fname) as f:
     for line in f:
         try:
@@ -54,16 +60,19 @@ with open(fname) as f:
         #print('feat_from_cxt len is' , len(feat))
         #print(feat)
         all_feats.append(feat)
-        lengths.append(length)
         if nlines == 1:
             print(feat)
+
+        if num != 0:
+            if nlines == num:
+                nlines = nlines + 1
+                break
 
         if ((nlines % iter_num) == 0):
             print("So far have %d" % nlines)
             x = np.array(all_feats)
             np.savez_compressed(fname + ".t" + str(idx), x=x)
             all_feats = []
-            lengths = []
             idx = idx + 1
         nlines = nlines + 1
 
