@@ -59,7 +59,7 @@ print("Global var is %s (Norm of the vector is %f Sum is %f)" % (str(all_var), n
 
 if args.save:
     if args.stats == "":
-        np.savez("%s/statsall" % args. dirName,all_mean=all_mean,all_var=all_var)
+        np.savez("%s/statsall" % args.dirName,all_mean=all_mean,all_var=all_var)
         np.savetxt("%s/mean.txt" % args.dirName,all_mean)
         np.savetxt("%s/var.txt" % args.dirName,all_var)
 

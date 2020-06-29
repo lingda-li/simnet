@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import random
 import numpy as np
 import sys
@@ -38,7 +39,7 @@ for i in range(10):
     random.shuffle(newlines)
 
 if len(sys.argv) > 2:
-    fname = "all.ml"
+    fname = os.path.join(os.path.dirname(sys.argv[1]), "all.ml")
 with open(fname + "u", 'w') as f:
     for item in newlines:
         f.write("%s\n" % item)

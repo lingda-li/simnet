@@ -33,7 +33,7 @@ parser.add_argument('fname', nargs='*')
 args = parser.parse_args()
 
 fname = args.fname[0]
-num = args.num[0]
+num = args.num
 print("Make ML dataset for", fname, "with", num, "instructions")
 
 nlines = 1
