@@ -1,0 +1,10 @@
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+project(sim)
+
+
+find_package(Torch REQUIRED)
+set (CMAKE_CXX_FLAGS "-fopenmp")
+add_executable(simulator parall_simnet.cpp)
+target_link_libraries(simulator "${TORCH_LIBRARIES}")
+set_property(TARGET simulator PROPERTY CXX_STANDARD 14)
+
