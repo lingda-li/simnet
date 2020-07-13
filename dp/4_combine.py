@@ -28,6 +28,6 @@ for fname in fnames:
     else:
         total_x = np.vstack((total_x,x))
 
-np.savez_compressed("totalall", x=total_x)
+np.savez_compressed(os.path.join(os.path.dirname(sys.argv[1]), "totalall"), x=total_x)
 
 print("Took %f to make files" % (time.time() - t1))
