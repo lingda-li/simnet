@@ -10,12 +10,12 @@
 
 using namespace std;
 //#define CLASSIFY
-#define DEBUG
+// #define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
-// #define GPU
+#define GPU
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
@@ -26,7 +26,6 @@ using namespace std;
 #define TD_SIZE 39
 #define ML_SIZE (TD_SIZE * ROBSIZE)
 #define MIN_COMP_LAT 6
-
 #define ILINEC_BIT 8
 #define IPAGEC_BIT 13
 #define DADDRC_BIT 17
@@ -132,6 +131,7 @@ struct Inst
 
   bool read_train_data(ifstream &trace, ifstream &aux_trace)
   { 
+    // cout <<"Current pointer: "<< trace.tellg()<<endl;
     trace >> trueFetchClass >> trueFetchTick;
     trace >> trueCompleteClass >> trueCompleteTick;
     aux_trace >> pc;
@@ -226,6 +226,10 @@ struct ROB {
     Addr addr = insts[dec(tail)].addr;
     Addr addrEnd = insts[dec(tail)].addrEnd;
     Addr iwalkAddr[3], dwalkAddr[3];
+    // for (int i = num; i < ROBSIZE; i++) {
+    //   cout<<default_val[i]<<"\t";
+    // }
+    // cout<<endl;
     for (int i = 0; i < 3; i++) {
       iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
       dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
@@ -239,10 +243,13 @@ struct ROB {
           if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
             conflict++;
         }
+
+        // cout<<"Ilinec"<< insts[i].train_data[ILINEC_BIT] << "conflict: "<<conflict << endl;
         insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
         insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
         insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
         conflict = 0;
+        // cout<<"Train Data: "<<insts[i].train_data[IPAGEC_BIT]<<" "<<insts[i].train_data[DADDRC_BIT]<<" "<<insts[i].train_data[DLINEC_BIT]<<endl;
         if (isAddr && insts[i].isAddr)
           for (int j = 0; j < 3; j++) {
             if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
@@ -256,6 +263,10 @@ struct ROB {
     for (int i = num; i < ROBSIZE; i++) {
       std::copy(default_val, default_val + TD_SIZE, context + i * TD_SIZE);
     }
+    // for (int i = num; i < ROBSIZE; i++) {
+    //   cout<<default_val[i]<<"\t";
+    // }
+    // cout<<endl;
   }
   void update_fetch_cycle(Tick tick) {
     for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
@@ -281,7 +292,7 @@ float *read_numbers(char *fname, int sz)
 
 int main(int argc, char *argv[])
 {
-  cout << "main function called" << endl;
+  // cout << "main function called. Argc:  " <<argc<< endl;
   if (argc < 4)
   {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <# parallel traces>" << endl;
@@ -299,15 +310,6 @@ int main(int argc, char *argv[])
     return 0;
   }
 
-  // trace.seekg(0, trace.end);
-  // int length = trace.tellg();
-  // cout<<"length: "<< length<<endl;
-  // trace.seekg(0, trace.beg);
-
-  // while (std::getline(trace, line))
-  //       ++number_of_lines;
-  // std::cout << "Number of lines in text file: " << number_of_lines;
-
   torch::jit::script::Module lat_module;
   try
   {
@@ -323,13 +325,39 @@ int main(int argc, char *argv[])
     cerr << "error loading the model\n";
     return 0;
   }
+
+  float *varPtr = NULL;
+#ifdef CLASSIFY
+  if (argc > 6)
+    varPtr = read_numbers(argv[5], TD_SIZE);
+#else
+  if (argc > 5)
+    varPtr = read_numbers(argv[4], TD_SIZE);
+#endif
+  if (varPtr)
+    cout << "Use input factors.\n";
+
+      for (int i = 0; i < TD_SIZE; i++) {
+#ifdef NO_MEAN
+    mean[i] = -0.0;
+#endif
+    if (varPtr)
+      factor[i] = sqrtf(varPtr[i]);
+    default_val[i] = -mean[i] / factor[i];
+    // cout << default_val[i] << " ";
+  }
+
   int Total_Trace = atoi(argv[4]);
-  int Total_instr = 1000;
+  std::string line;
+  int lines=0;
+   while (std::getline(trace_test, line))
+        ++lines;
+    // std::cout << "Number of lines in text file: " << lines;
+  int Total_instr = lines;
   int nGPU = 1;
   int Batch_size = Total_instr / Total_Trace;
   ifstream trace[Total_Trace];
   ifstream aux_trace[Total_Trace];
-  Tick completeTick[Total_Trace];
   Tick curTick[Total_Trace];
   Tick nextFetchTick[Total_Trace];
   Tick lastFetchTick[Total_Trace];
@@ -337,27 +365,29 @@ int main(int argc, char *argv[])
   unsigned long long inst_num_all[Total_Trace];
   int fetched[Total_Trace];
   int ROB_flag[Total_Trace];
-
+  int int_fetch_latency[Total_Trace];
+  int int_finish_latency[Total_Trace];
+  bool eof[Total_Trace];
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-    completeTick[i] = 0;
     curTick[i] = 0;
     nextFetchTick[i] = 0;
     lastFetchTick[i] = 0;
     inst_num_all[i] = 0;
     fetched[i] = 0;
+    eof[i] = false;
     int offset = i * Batch_size;
     std::string line;
     int number_of_lines = 0;
     trace[i].open(argv[1]);
     while (std::getline(trace[i], line) && (number_of_lines < offset))
       ++number_of_lines;
-    aux_trace[i].open(argv[1]);
+    aux_trace[i].open(argv[2]);
     number_of_lines = 0;
     while (std::getline(aux_trace[i], line) && (number_of_lines < offset))
       ++number_of_lines;
-    cout << "I:" << i << "Skipped: " << number_of_lines << endl;
+    // cout <<endl<< "I:" << i << "\tSkipped: " << number_of_lines << endl;
     if (i == 0)
     {
       trace[0].seekg(0, trace[0].beg);
@@ -366,145 +396,166 @@ int main(int argc, char *argv[])
   }
 
   // float *inputPtr = input.data_ptr<float>();
-  int i, count = 0;
-  int stop_flag = Batch_size - 1;
-  bool eof = false;
+  int i, count = 0, stop_flag=0;
+  // cout<<"Batch size: "<< Batch_size <<endl;
   struct ROB *rob = new ROB[Total_Trace];
-  // Inst *newInst = new Inst[Total_Trace];
-  Inst **newInst;
-  newInst = new Inst *[Total_Trace];
-  // float *inputPtr = input.data_ptr<float>();
-  // std::vector<torch::jit::IValue> inputs;
-  // Inst *newInst[Total_Trace];
   Tick Case0 = 0;
   Tick Case1 = 0;
   Tick Case2 = 0;
   Tick Case3 = 0;
   double measured_time = 0.0;
-  struct timeval start, end, total_start, total_end;
+  struct timeval start, end, total_start, total_end, end_first, start_first;
   gettimeofday(&total_start, NULL);
-
-  while (stop_flag != 0)
+  while (stop_flag != 1)
   {
-
-    
-    std::vector<at::Tensor> inputs_vec;
+    int inference_count[nGPU];
+    Inst **newInst;
+    newInst = new Inst *[Total_Trace];    
+    std::vector<at::Tensor> inputs_vec[nGPU];
+    at::Tensor output[nGPU];
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     {
+      
       at::Tensor input = torch::ones({1, ML_SIZE});
       float *inputPtr = input.data_ptr<float>();
-#ifdef DEBUG1
-      cout << "Thread ID: " << omp_get_thread_num() << endl;
-#endif
-      int status = rob[i].is_empty();
-#ifdef DEBUG1
-      cout << "Rob status: " << status << endl;
-#endif
-      if (!eof || !rob[i].is_empty())
+      // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
+      if (!eof[i] || !rob[i].is_empty())
       {
         // Retire instructions.
         if (ROB_flag[i])
         {
           int retired = rob[i].retire_until(curTick[i]);
+          #ifdef DEBUG
           cout<<"Count: "<<count<<"Retired: "<<retired<<"Retired until: "<<inst_num_all[i]<<endl;
+          #endif
           inst_num_all[i] += retired;
           fetched[i] = 0;
-#ifdef DEBUG
-          cout << "************" << "Curtick" <<curTick[i] << "Retired " <<retired << "Is_full " << rob->is_full() << "************"
+          #ifdef DEBUG
+          cout << "************" << "Curtick: " <<curTick[i] << "Retired: " <<retired << "Is_full: " << rob->is_full() << "************"
                << "\n";
-#endif
+          #endif
         }
-        if (fetched[i] < FETCH_BANDWIDTH && !rob[i].is_full() && !eof)
+        if (fetched[i] < FETCH_BANDWIDTH && !rob[i].is_full() && !eof[i])
         {
           ROB_flag[i] = false;
-          if (inst_num_all[i] == Batch_size)
+          if (inst_num_all[i] >( Batch_size-1))
           {
-            eof = true;
-            cout << "end of file" << endl;
+            eof[i]= true;
+            rob[i].head = (rob[i].tail);
+            #ifdef DEBUG
+            cout <<"Trace: "<<i<< " ,end of batch size inst_num_all. Is empty: "<< rob[i].is_empty() << endl;
+            #endif
           }
-          // Inst *newInst = rob[i].add();
           newInst[i] = rob[i].add();
           if (!newInst[i]->read_train_data(trace[i], aux_trace[i]))
           {
-            eof = true;
+            eof[i]= true;
+            #ifdef DEBUG
+            cout <<"Trace: "<<i<<"Instr: "<<inst_num_all[i]<<"eof true from read_train_data"<<endl;
+            #endif
             rob[i].tail = rob[i].dec(rob[i].tail);
           }
+          
           fetched[i]++;
-          count++;
-#ifdef DEBUG
-          cout << "Fetched: " << fetched[i] << endl;
-#endif
+          if(fetched[i]>Batch_size){eof[i]= true;
+          #ifdef DEBUG
+          cout <<"Trace: "<<i<< " ,end of batch size from fetch." << endl;
+          #endif
+          }
+          #pragma omp atomic
+            count+=1;
+          #ifdef DEBUG
+          cout <<"T: "<<i<< "Fetched: " << fetched[i] << endl;
+          #endif
           newInst[i]->inTick = curTick[i];
-          cout<<"newInst->inTick: "<< newInst[i]->inTick<< endl;
+          #ifdef DEBUG
+          cout<<"T: "<<i<<"newInst->inTick: "<< newInst[i]->inTick<< endl;
+          #endif
           if (curTick[i] != lastFetchTick[i])
           {
-            cout << "Update fetch cycle"<<(curTick[i] - lastFetchTick[i])<<endl;
+            #ifdef DEBUG 
+            cout <<"T: "<<i<< "Update fetch cycle: "<<(curTick[i] - lastFetchTick[i])<<endl;
+            #endif
             rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
           }
           // cout<<input<<endl;
-          rob->make_train_data(inputPtr);
+          rob[i].make_train_data(inputPtr);
           // cout<<input<<endl;
           // Determine the GPU to push the result.
-          int GPU_ID = i / nGPU;
+          // int GPU_ID = 0;
+          int GPU_ID = (i+1)%nGPU;
 #pragma omp critical
+          {
 #ifdef GPU
-          inputs_vec.push_back(input.cuda());
+          inputs_vec[GPU_ID].push_back(input.cuda());
 #else
-          inputs_vec.push_back(input);
+          inputs_vec[GPU_ID].push_back(input);
 #endif
-          index[i] = inputs_vec.size() - 1;
+          index[i] = inputs_vec[GPU_ID].size() - 1;
+          }
+          #pragma omp atomic
+            inference_count[GPU_ID]+=1;
           // inputs[GPU_ID].push_back(input.cuda());
-          // cout<<"Trace Id:"<<i<<", Index:"<< ( inputs.size() - 1) <<endl;
-
-          // #ifdef DEBUG
-          //   cout<<"Fetched: "<<fetched[i]<<endl;
-          // #endif
           if ((fetched[i] == FETCH_BANDWIDTH) )
           {
-            ROB_flag[i] = true; cout<<"Rob flagged" <<endl;
+            ROB_flag[i] = true; 
+            #ifdef DEBUG
+            cout<<"Rob flagged" <<endl;
+            #endif
           }
         }
         else
         {
           ROB_flag[i] = true;
+          #ifdef DEBUG
           cout << "Else condition" << endl;
-          
+          #endif
         }
 #ifdef DEBUG
         cout << "Count:" << count << endl;
 #endif
       }
     }
-    gettimeofday(&end, NULL);
-    // for (auto it = myvector.begin(); it != myvector.end(); ++it)
-    //     cout << ' ' << *it;
+    gettimeofday(&start_first, NULL);
+    i=0;
     // Parallel inference
-
-    // #pragma omp parallel for
-    // for(i=0;i<nGPU; i++){
-    at::Tensor input_ = torch::cat(inputs_vec);
-    std::vector<torch::jit::IValue> inputs;
-    inputs.push_back(input_);
-    at::Tensor output = lat_module.forward(inputs).toTensor();
-// }
-measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
-// Aggregate results
+    /************************************************************************************************/
+    #pragma omp parallel for
+    for(i=0;i<nGPU; i++){    
+      if(inference_count[i]){
+        at::Tensor input_ = torch::cat(inputs_vec[i]);
+        std::vector<torch::jit::IValue> inputs;
+        inputs.push_back(input_);
+        output[i] = lat_module.forward(inputs).toTensor();
+        inference_count[i]=0;
+      }
+    }
+    gettimeofday(&end_first, NULL);
+    double total_time = end_first.tv_sec - start_first.tv_sec + (end_first.tv_usec - start_first.tv_usec) / 1000000.0;
+    // cout<<"Rob time: "<<total_time<< endl;
+    // break;
+    measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
+    // cout<<output<<endl;
+    // break;
+    // Aggregate results
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
-    {
-      float fetch_lat = output[0][0].item<float>() * factor[1] + mean[1];
-      float finish_lat = output[0][1].item<float>() * factor[3] + mean[3];
-      cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
+    { 
+      if(!eof[i]){
+      int GPU_ID = (i+1)%nGPU;
+      float fetch_lat = output[GPU_ID][index[i]][0].item<float>() * factor[1] + mean[1];
+      float finish_lat = output[GPU_ID][index[i]][1].item<float>() * factor[3] + mean[3];
+      // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
       if (int_fetch_lat < 0)
-        int_fetch_lat = 0;
+        int_fetch_lat = 0;            
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
-#ifdef DEBUG
-      cout << "curtick " <<curTick[i] << ", fetch latency " << int_fetch_lat << ", finish latency " << int_finish_lat << endl;
-#endif
+      // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
+      #ifdef DEBUG
+      #endif
       newInst[i]->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
       newInst[i]->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
       newInst[i]->train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
@@ -514,79 +565,104 @@ measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.t
       newInst[i]->tickNum = int_finish_lat;
       newInst[i]->completeTick = curTick[i] + int_finish_lat + int_fetch_lat;
       lastFetchTick[i] = curTick[i];
-            #ifdef DEBUG 
-      cout<<"newInst update"<<endl;
-      cout << newInst[i]->train_data[0] << " " << newInst[i]->train_data[1] << " " << newInst[i]->train_data[2] << " " << newInst[i]->train_data[3]<<" "<<newInst[i]->tickNum<<" "<<newInst[i]->completeTick<<" "<<nextFetchTick[i]<< endl;
-#endif
+      #ifdef DEBUG 
+        cout<<"newInst update"<<endl;
+        cout << newInst[i]->train_data[0] << " " << newInst[i]->train_data[1] << " " << newInst[i]->train_data[2] << " " << newInst[i]->train_data[3]<<" "<<newInst[i]->tickNum<<" "<<newInst[i]->completeTick<<" "<<nextFetchTick[i]<< endl;
+      #endif
+      int_fetch_latency[i] = int_fetch_lat;
+      int_finish_latency[i] = int_finish_lat;
       if (int_fetch_lat)
       {
         nextFetchTick[i] = curTick[i] + int_fetch_lat;
         ROB_flag[i] = true;
+        #ifdef DEBUG
         cout<<"continue"<<endl;
+        #endif
       }
-
+      }
+    }
+    
+      /************************************************************************************************/
+#pragma omp parallel for
+    for (i = 0; i < Total_Trace; i++){
+      if (!rob[i].is_empty()) // this results in 2075
+      {
 
       if (ROB_flag[i])
       {
-        if (rob[i].is_full() && int_fetch_lat)
+        if (rob[i].is_full() && int_fetch_latency[i])
         {
           // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
           curTick[i] = max(rob[i].getHead()->completeTick, nextFetchTick[i]);
-#pragma omp critical
-          Case0++;
+        #pragma omp atomic 
+          Case0+=1;
         }
         else if (rob[i].is_full())
         {
           // Fast forward curTick to retire instructions.
           curTick[i] = rob[i].getHead()->completeTick;
-#pragma omp critical
+        #pragma omp atomic
           Case1++;
         }
-        else if (int_fetch_lat)
+        else if (int_fetch_latency[i])
         {
           // Fast forward curTick to fetch instructions.
           curTick[i] = nextFetchTick[i];
-#pragma omp critical
+        #pragma omp atomic
           Case2++;
         }
         else
         {
           curTick[i]++;
-#pragma omp critical
+        #pragma omp atomic
           Case3++;
         }
-        cout<< "curTick" << curTick[i]<<endl;
-        int_fetch_lat = 0;
+        #ifdef DEBUG
+        cout<< "curTick: " << curTick[i]<<endl;
+        #endif
+        int_fetch_latency[i] = 0;
       }
-
-      
     }
-    stop_flag -= 1;
+  }
+    // stop_flag -= 1;
+    stop_flag = true;
+    for(int i=0 ; i< Total_Trace;i++)
+    {
+      // cout<< "eof[ " << i << "]= " << eof[i]<<endl;
+      if(!eof[i] || !rob[i].is_empty())
+      
+      {
+        stop_flag=false;
+      }
+    }
+    // #ifdef DEBUG
+    for(int i=0 ; i< Total_Trace;i++)
+    {
+      cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<"curTick: " << curTick[i] << "Rob status: "<< rob[i].is_empty()<< endl;
+    }
+    // #endif
+    // cout<<"Stop flag: "<<stop_flag<<endl;
     // #ifdef DEBUG
     // cout<<"Stop flag:"<<stop_flag<<endl<<endl;
     // #endif
   }
-
   gettimeofday(&total_end, NULL);
   double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
-  trace[0].close();
-  aux_trace[0].close();
+  
   int inst_num = 0;
   Tick curTick_final = 0;
-#pragma omp parallel for
-  for (i = 0; i < Total_Trace; i++)
+
+  for (i = 0; i < Total_Trace; i++) 
   {
-    // cout<<"Inst num: "<<inst_num_all[i]<<endl;
+    // cout<<"Inst: "<<inst_num_all[i] <<". Tick: "<<curTick[i]<<endl;
     inst_num += inst_num_all[i];
     curTick_final += curTick[i];
+    trace[i].close();
+    aux_trace[i].close();
   }
 
-  for (i = 0; i < Total_Trace; i++)
-  {
-    cout << "Inst num: " << inst_num_all[i] << endl;
-  }
   cout<<"Count: "<<count<<endl;
-  cout << inst_num << " instructions finish by " << (curTick_final - 1) << "\n";
+  cout << inst_num << " instructions finish by " << (curTick_final ) << "\n";
   cout << "Time: " << total_time << "\n";
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num << "\n";
