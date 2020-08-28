@@ -48,7 +48,10 @@ or
 
 `./simulator <trace> <aux trace> <lat module> <variances (optional)>`
 
-change log:
+Change log:
 050820: Init the repo.
 051420: Fix the simulator bug that didn't generate context instruction
 relationship at runtime.
+082820, v1.0: a stable version that works with datasets from O3CPU output that
+includes instruction, register, data access, instruction access, and page table
+walking information.
