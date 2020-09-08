@@ -123,8 +123,6 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
 
   // Read instruction memory access info.
   *trace >> hex >> pc;
-  // cerr << hex << pc << endl;
-  //pc = pc & ~0x3f;
   *trace >> dec >> isMisPredict >> fetchDepth;
   for (int i = 0; i < 3; i++)
     *trace >> iwalkDepth[i];
@@ -271,7 +269,7 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
   else
     cout << "0 ";
   // Data cache line conflict.
-  if (!first && is_addr && isAddr && (begin & ~0x3f) == (addr & ~0x3f))
+  if (!first && is_addr && isAddr && getLine(begin) == getLine(addr))
     cout << "1 ";
   else
     cout << "0 ";
