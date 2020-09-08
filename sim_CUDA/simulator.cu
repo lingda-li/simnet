@@ -20,7 +20,7 @@ using namespace std;
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
-
+// #define CNN3_MODEL
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define ROBSIZE 94
@@ -306,15 +306,13 @@ void CNN3_inference(cublasHandle_t &handle, CNN3 *model_device, CNN3 *model_host
 {
   int N_blocks = 128; int N_threads = 128; int status = 1;
   // cout<<"CNN3 model\n";
-  cout<<"Inference called"<<endl;
+  // cout<<"Inference called"<<endl;
   Conv_thread<<<N_blocks,196>>>(&model_device->conv1, X_device);
   H_ERR(cudaDeviceSynchronize());
   Conv_thread_2<<<N_blocks,320>>>(&model_device->conv2,&model_device->conv1);
   H_ERR(cudaDeviceSynchronize());
   Conv_thread_2<<<N_blocks,320>>>(&model_device->conv3,&model_device->conv2);
   H_ERR(cudaDeviceSynchronize());
-  G_display<<<1,1>>>(model_host->conv1.output,64,86);
-  H_ERR(cudaDeviceSynchronize()); 
   status = gpu_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1);
   H_ERR(cudaDeviceSynchronize());
   if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
@@ -420,10 +418,10 @@ int main(int argc, char *argv[]) {
     //  break;
     //if (inst_num)
     //  cout << ".";
-#ifdef DEBUG
-    if (retired)
-      cout << curTick << " " << retired << "\n";
-#endif
+// #ifdef DEBUG
+//     if (retired)
+//       cout << curTick << " " << retired << "\n";
+// #endif
     // Fetch instructions.
     int fetched = 0;
     int int_fetch_lat;
@@ -463,10 +461,12 @@ int main(int argc, char *argv[]) {
     //   }
     //   int reads= fread(X_host,sizeof(float),(inst_length*context_length),dims);
     //   printf("%d items read.\n",reads); 
-      // for(int i=0;i<(inst_length*context_length);i++)
-      // {
-          // printf("%.5f, \t",X_host[i]);
-      // }
+    // cout<<"Input: \n";
+      for(int i=0;i<(inst_length*context_length);i++)
+      {
+          // printf("%.2f, \t",inputPtr[i]);
+      }
+      cudaMemset((void**)&X_device, 0, inst_length*batch_size*context_length*sizeof(float)); 
       H_ERR(cudaMemcpy(X_device,inputPtr,sizeof(float)*inst_length*batch_size*context_length, cudaMemcpyHostToDevice));
       float *output= (float*) malloc(2*sizeof(float)); output[0] = 0; output[1] = 0; 
       #ifdef CNN3_MODEL
@@ -476,10 +476,10 @@ int main(int argc, char *argv[]) {
       #endif
       // at::Tensor output = lat_module.forward(inputs).toTensor();
       H_ERR(cudaMemcpy(output,model_host.fc2.output,sizeof(custom_t )*2, cudaMemcpyDeviceToHost));
-      printf("Output: %.4f, %.4f\n",output[0],output[1]);
+      // printf("Output: %.4f, %.4f\n",output[0],output[1]);
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
-
+      // if(curTick>10){exit(0);}
 #ifdef CLASSIFY
       int f_class, c_class;
       for (int i = 0; i < 2; i++) {
@@ -511,10 +511,11 @@ int main(int argc, char *argv[]) {
         int_fetch_lat = f_class;
       if (c_class <= 8)
         int_finish_lat = c_class + MIN_COMP_LAT;
-      //std::cout << curTick << ": ";
+        //std::cout << curTick << ": ";
       //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
       //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
 #endif
+// cout<<"Fetch: "<< int_fetch_lat<<" Finish: "<< int_finish_lat<<endl;
 #ifdef DUMP_ML_INPUT
       int_finish_lat = newInst->trueCompleteTick;
       int_fetch_lat = newInst->trueFetchTick;
@@ -533,13 +534,12 @@ int main(int argc, char *argv[]) {
         nextFetchTick = curTick + int_fetch_lat;
         break;
       }
-      
     }
     
-#ifdef DEBUG
-    if (fetched)
-      // cout << curTick << " f " << fetched << "\n";
-#endif
+// #ifdef DEBUG
+//     if (fetched)
+//       cout << curTick << " f " << fetched << "\n";
+// #endif
     if (rob->is_full() && int_fetch_lat) {
       // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
       curTick = max(rob->getHead()->completeTick, nextFetchTick);
