@@ -22,7 +22,6 @@ G_display(custom_t  *a, int row,int column)
 }
 
 
-
 __device__ void
 d_display(custom_t  *a, int row,int column)
 {
@@ -142,7 +141,9 @@ while(filterId<out_ch){
     for(int j=0; j<(out);j++)
     {
         // printf("X: %d\n", (index + j));
+        
         int result_start = filterId* out + j;
+        conv_p->output[result_start] = 0;
         if(threadIdx.x<(in_ch*kl))
         {
             float z = conv_p->W[threadIdx.x+filter_offset];
@@ -208,6 +209,7 @@ Conv_thread(One_DConv *conv, float *X)
         {
             // printf("X: %d\n", (index + j));
             int result_start = filterId* out + j;
+            conv->output[result_start] = 0;
             int pos= threadIdx.x;
             while(pos<(in_ch*kl))
             {
@@ -273,6 +275,7 @@ Conv_thread_2(One_DConv *conv, One_DConv *conv_previous)
         for(int j=0; j<out;j++)
         {
             int result_start = filterId* out + j;
+            conv->output[result_start] = 0;
             int pos = threadIdx.x;
             while(pos<(in_ch*kl))
             {
