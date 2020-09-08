@@ -5,11 +5,6 @@
 
 using namespace std;
 
-#define MAXREGNUM 8
-#define ROBSIZE 100
-#define CONTEXT_SIZE 96
-#define TICK_STEP 500
-
 #define SRCREGNUM 8
 #define DSTREGNUM 6
 
@@ -35,10 +30,10 @@ struct Inst {
   // Registers.
   int srcNum;
   int destNum;
-  int srcClass[MAXREGNUM];
-  int srcIndex[MAXREGNUM];
-  int destClass[MAXREGNUM];
-  int destIndex[MAXREGNUM];
+  int srcClass[SRCREGNUM];
+  int srcIndex[SRCREGNUM];
+  int destClass[DSTREGNUM];
+  int destIndex[DSTREGNUM];
 
   // Data access.
   int isAddr;
@@ -66,10 +61,22 @@ struct Inst {
   Tick storeTick;
 
   // Read one instruction from SQ and ROB traces.
-  bool read(ifstream &trace, ifstream &SQtrace);
+  bool read(ifstream &ROBtrace, ifstream &SQtrace);
 
   // Generate the final OP code.
   void combineOp();
+
+  // Whether it is in SQ.
+  bool inSQ() {
+    if (sqIdx != -1 && !isStoreConditional && !isAtomic)
+      return true;
+    else
+      return false;
+  }
+
+  // Get ticks.
+  Tick robTick() { return inTick + outTick; }
+  Tick sqTick() { return inTick + storeTick; }
 
   // Dump instruction for ML input.
   void dump(Tick tick, bool first, int is_addr, Addr begin, Addr end, Addr PC,

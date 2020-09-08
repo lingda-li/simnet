@@ -46,6 +46,7 @@ struct Inst {
   int dwalkDepth[3];
   Addr dwalkAddr[3];
   int dWritebacks[3];
+  int sqIdx;
 
   // Instruction access.
   Addr pc;
@@ -60,11 +61,8 @@ struct Inst {
   Tick inTick;
   Tick tickNum;
   Tick outTick;
-  Tick robTick;
+  Tick completeTick;
   Tick storeTick;
-
-  // Read one instruction from SQ and ROB traces.
-  bool read(ifstream &trace, ifstream &SQtrace);
 
   // Read one instruction.
   bool read(ifstream &trace) {
@@ -326,63 +324,3 @@ struct Context {
     cout << "\n";
   }
 };
-
-bool Inst::read(ifstream &trace, ifstream &SQtrace) {
-    trace >> dec >> inTick >> tickNum >> outTick;
-    if (trace.eof())
-      return false;
-    assert(inTick % TICK_STEP == tickNum % TICK_STEP == outTick % TICK_STEP ==
-           0);
-    inTick /= TICK_STEP;
-    tickNum /= TICK_STEP;
-    outTick /= TICK_STEP;
-    // Read instruction type and etc.
-    trace >> op >> isMicroOp >> isCondCtrl >> isUncondCtrl >> isSquashAfter >>
-        isSerializeAfter >> isSerializeBefore >> isMisPredict;
-    trace >> isMemBar >> isQuiesce >> isNonSpeculative >> pcOffset;
-    combineOp();
-    // Read source and destination registers.
-    trace >> srcNum;
-    for (int i = 0; i < srcNum; i++)
-      trace >> srcClass[i] >> srcIndex[i];
-    trace >> destNum;
-    for (int i = 0; i < destNum; i++)
-      trace >> destClass[i] >> destIndex[i];
-    assert(srcNum <= MAXREGNUM && destNum <= MAXREGNUM);
-    // Read data memory access info.
-    trace >> isAddr;
-    trace >> hex >> addr;
-    trace >> dec >> size >> depth;
-    if (isAddr)
-      addrEnd = addr + size - 1;
-    else {
-      addrEnd = 0;
-      depth = -1;
-    }
-    for (int i = 0; i < 3; i++)
-      trace >> dwalkDepth[i];
-    for (int i = 0; i < 3; i++) {
-      trace >> hex >> dwalkAddr[i];
-      assert(dwalkAddr[i] == 0 || dwalkDepth[i] != -1);
-    }
-    for (int i = 0; i < 2; i++)
-      trace >> dWritebacks[i];
-    assert(
-        (dwalkDepth[0] == -1 && dwalkDepth[1] == -1 && dwalkDepth[2] == -1) ||
-        isAddr);
-    // Read instruction memory access info.
-    trace >> hex >> pc;
-    //cerr << hex << pc << endl;
-    pc = pc & ~0x3f;
-    trace >> dec >> fetchDepth;
-    for (int i = 0; i < 3; i++)
-      trace >> iwalkDepth[i];
-    for (int i = 0; i < 3; i++) {
-      trace >> hex >> iwalkAddr[i];
-      assert(iwalkAddr[i] == 0 || iwalkDepth[i] != -1);
-    }
-    for (int i = 0; i < 2; i++)
-      trace >> iWritebacks[i];
-    assert(!trace.eof());
-    return true;
-}
