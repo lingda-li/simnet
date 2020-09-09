@@ -79,6 +79,19 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
       isSquashAfter >> isSerializeAfter >> isSerializeBefore;
   *trace >> isAtomic >> isStoreConditional >> isMemBar >> isQuiesce >>
       isNonSpeculative;
+  assert((isMicroOp == 0 || isMicroOp == 1) &&
+         (isCondCtrl == 0 || isCondCtrl == 1) &&
+         (isUncondCtrl == 0 || isUncondCtrl == 1) &&
+         (isDirectCtrl == 0 || isDirectCtrl == 1) &&
+         (isSquashAfter == 0 || isSquashAfter == 1) &&
+         (isSerializeAfter == 0 || isSerializeAfter == 1) &&
+         (isSerializeBefore == 0 || isSerializeBefore == 1) &&
+         (isAtomic == 0 || isAtomic == 1) &&
+         (isStoreConditional == 0 || isStoreConditional == 1) &&
+         (isMemBar == 0 || isMemBar == 1) &&
+         (isQuiesce == 0 || isQuiesce == 1) &&
+         (isNonSpeculative == 0 || isNonSpeculative == 1) &&
+         (isMisPredict == 0 || isMisPredict == 1));
   //fprintf(stderr, "t %d %lu %lu %lu : %d %lu %lu %lu\n", sqIdx, inTick, completeTick, outTick, sqIdx2, inTick2, completeTick2, outTick2);
   assert(!inSQ() || (sqIdx2 == sqIdx && inTick2 == inTick &&
                      completeTick2 == completeTick && outTick2 == outTick));
@@ -145,19 +158,6 @@ void printOP(Inst *i) {
 }
 
 void Inst::combineOp() {
-  assert((isMicroOp == 0 || isMicroOp == 1) &&
-         (isCondCtrl == 0 || isCondCtrl == 1) &&
-         (isUncondCtrl == 0 || isUncondCtrl == 1) &&
-         (isDirectCtrl == 0 || isDirectCtrl == 1) &&
-         (isSquashAfter == 0 || isSquashAfter == 1) &&
-         (isSerializeAfter == 0 || isSerializeAfter == 1) &&
-         (isSerializeBefore == 0 || isSerializeBefore == 1) &&
-         (isAtomic == 0 || isAtomic == 1) &&
-         (isStoreConditional == 0 || isStoreConditional == 1) &&
-         (isMemBar == 0 || isMemBar == 1) &&
-         (isQuiesce == 0 || isQuiesce == 1) &&
-         (isNonSpeculative == 0 || isNonSpeculative == 1) &&
-         (isMisPredict == 0 || isMisPredict == 1));
   if (isAtomic)
     printOP(this);
   if (isMemBar) {
