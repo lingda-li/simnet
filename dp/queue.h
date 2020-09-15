@@ -49,21 +49,21 @@ struct QUEUE {
     while (!is_sq_empty() && insts[head].sqTick() <= tick)
       retire_sq_head();
   }
-  void dump(Tick tick) {
+  void dump(Tick tick, ostream &out = cout) {
     for (int i = dec(tail); i != dec(rob_head); i = dec(i)) {
       insts[i].dump(tick, i == dec(tail), insts[dec(tail)].isAddr,
                     insts[dec(tail)].addr, insts[dec(tail)].addrEnd,
                     insts[dec(tail)].pc, insts[dec(tail)].iwalkAddr,
-                    insts[dec(tail)].dwalkAddr);
+                    insts[dec(tail)].dwalkAddr, out);
     }
     for (int i = dec(rob_head); i != dec(head); i = dec(i)) {
       if (insts[i].inSQ())
         insts[i].dump(tick, i == dec(tail), insts[dec(tail)].isAddr,
                       insts[dec(tail)].addr, insts[dec(tail)].addrEnd,
                       insts[dec(tail)].pc, insts[dec(tail)].iwalkAddr,
-                      insts[dec(tail)].dwalkAddr);
+                      insts[dec(tail)].dwalkAddr, out);
     }
-    cout << "\n";
+    out << "\n";
   }
 };
 

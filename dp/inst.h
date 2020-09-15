@@ -7,6 +7,8 @@ using namespace std;
 
 #define SRCREGNUM 8
 #define DSTREGNUM 6
+#define MAXREGCLASS 6
+#define MAXREGIDX 50
 
 typedef long unsigned Tick;
 typedef long unsigned Addr;
@@ -80,7 +82,7 @@ struct Inst {
 
   // Dump instruction for ML input.
   void dump(Tick tick, bool first, int is_addr, Addr begin, Addr end, Addr PC,
-            Addr *iwa, Addr *dwa);
+            Addr *iwa, Addr *dwa, ostream &out = cout);
 
   // Dump instruction for simulator input.
   void dumpSim();

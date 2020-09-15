@@ -27,7 +27,7 @@ for i in range(1, len(sys.argv)):
                 data = line.rstrip('\n')
                 if data not in lines:
                     lines.add(data)
-                if ( (nlines % 500000) == 0):
+                if ( (nlines % 1000000) == 0):
                      print("So far have %d unique out of %d total" % (len(lines),
                                                                      nlines))
 
@@ -39,7 +39,7 @@ for i in range(10):
     random.shuffle(newlines)
 
 if len(sys.argv) > 2:
-    fname = os.path.join(os.path.dirname(sys.argv[1]), "all.ml")
-with open(fname + "u", 'w') as f:
+    fname = os.path.join(os.path.dirname(sys.argv[1]), "all.ML")
+with open(fname + "U", 'w') as f:
     for item in newlines:
         f.write("%s\n" % item)

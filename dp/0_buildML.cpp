@@ -2,6 +2,7 @@
 #include <fstream>
 #include <cstring>
 #include <cassert>
+#include <string>
 
 #include "inst.h"
 #include "queue.h"
@@ -9,12 +10,15 @@
 using namespace std;
 
 #define TICK_STEP 500
+#define MINCOMPLETELAT 6
+#define MINSTORELAT 6
 
 Addr getLine(Addr in) { return in & ~0x3f; }
+int getReg(int C, int I) { return C * MAXREGIDX + I + 1; }
 
 int main(int argc, char *argv[]) {
   if (argc != 3) {
-    cerr << "Usage: ./buildROB <trace> <SQ trace>" << endl;
+    cerr << "Usage: ./buildML <trace> <SQ trace>" << endl;
     return 0;
   }
   ifstream trace(argv[1]);
@@ -27,6 +31,11 @@ int main(int argc, char *argv[]) {
     cerr << "Cannot open SQ trace file.\n";
     return 0;
   }
+
+  string outputName = argv[1];
+  outputName.replace(outputName.end()-3, outputName.end(), "ML");
+  cerr << "Write to " << outputName << ".\n";
+  ofstream output(outputName);
 
   // Current context.
   struct QUEUE *q = new QUEUE;
@@ -42,8 +51,7 @@ int main(int argc, char *argv[]) {
       curTick = newInst->inTick;
     }
     q->retire_until(curTick);
-    //newInst->dump(curTick);
-    q->dump(curTick);
+    q->dump(curTick, output);
     curTick = newInst->inTick;
     num++;
     if (num % 100000 == 0)
@@ -57,6 +65,12 @@ int main(int argc, char *argv[]) {
 
 bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   ROBtrace >> dec >> sqIdx >> inTick >> completeTick >> outTick;
+  if (ROBtrace.eof()) {
+    int tmp;
+    SQtrace >> tmp;
+    assert(SQtrace.eof());
+    return false;
+  }
   ifstream *trace = &ROBtrace;
   int sqIdx2;
   Tick inTick2;
@@ -64,14 +78,9 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   if (sqIdx != -1) {
     SQtrace >> dec >> sqIdx2 >> inTick2 >> completeTick2 >> outTick2 >>
         storeTick;
+    if (SQtrace.eof())
+      return false;
     trace = &SQtrace;
-  }
-  if (ROBtrace.eof()) {
-    int tmp;
-    if (sqIdx == -1)
-      SQtrace >> tmp;
-    assert(SQtrace.eof());
-    return false;
   }
 
   // Read instruction type and etc.
@@ -90,27 +99,32 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
          (isStoreConditional == 0 || isStoreConditional == 1) &&
          (isMemBar == 0 || isMemBar == 1) &&
          (isQuiesce == 0 || isQuiesce == 1) &&
-         (isNonSpeculative == 0 || isNonSpeculative == 1) &&
-         (isMisPredict == 0 || isMisPredict == 1));
-  //fprintf(stderr, "t %d %lu %lu %lu : %d %lu %lu %lu\n", sqIdx, inTick, completeTick, outTick, sqIdx2, inTick2, completeTick2, outTick2);
+         (isNonSpeculative == 0 || isNonSpeculative == 1));
   assert(!inSQ() || (sqIdx2 == sqIdx && inTick2 == inTick &&
                      completeTick2 == completeTick && outTick2 == outTick));
   inTick /= TICK_STEP;
   completeTick /= TICK_STEP;
   outTick /= TICK_STEP;
-  if (sqIdx != -1)
+  assert(completeTick >= MINCOMPLETELAT);
+  if (sqIdx != -1) {
     storeTick /= TICK_STEP;
-  else
+    assert(storeTick >= MINSTORELAT);
+  } else
     storeTick = 0;
-  combineOp();
 
   // Read source and destination registers.
   *trace >> srcNum;
-  for (int i = 0; i < srcNum; i++)
+  for (int i = 0; i < srcNum; i++) {
     *trace >> srcClass[i] >> srcIndex[i];
+    assert(srcClass[i] <= MAXREGCLASS);
+    assert(srcClass[i] == MAXREGCLASS || srcIndex[i] < MAXREGIDX);
+  }
   *trace >> destNum;
-  for (int i = 0; i < destNum; i++)
+  for (int i = 0; i < destNum; i++) {
     *trace >> destClass[i] >> destIndex[i];
+    assert(destClass[i] <= MAXREGCLASS);
+    assert(destClass[i] == MAXREGCLASS || destIndex[i] < MAXREGIDX);
+  }
   assert(srcNum <= SRCREGNUM && destNum <= DSTREGNUM);
 
   // Read data memory access info.
@@ -121,7 +135,7 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
     addrEnd = addr + size - 1;
   else {
     addrEnd = 0;
-    depth = -1;
+    //depth = -1;
   }
   for (int i = 0; i < 3; i++)
     *trace >> dwalkDepth[i];
@@ -157,85 +171,46 @@ void printOP(Inst *i) {
           i->isMemBar, i->isMisPredict);
 }
 
-void Inst::combineOp() {
-  if (isAtomic)
-    printOP(this);
-  if (isMemBar) {
-    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
-           !isSerializeBefore && !isQuiesce && !isNonSpeculative &&
-           (op == 1 || op == 47 || op == 48));
-    if (op == 1) {
-      assert(!isAtomic && !isStoreConditional);
-      if (isSerializeAfter)
-        op = -1;
-      else
-        op = -2;
-    } else if (op == 47) {
-      assert(!isAtomic && !isStoreConditional);
-      op = -3;
-    } else {
-      assert(op == 48 && !isAtomic);
-      if (!isStoreConditional)
-        op = -4;
-      else
-        op = -5;
-    }
-  } else if (isStoreConditional) {
-    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
-           !isSerializeAfter && !isSerializeBefore && !isAtomic && !isQuiesce &&
-           !isNonSpeculative && op == 48);
-    op = -6;
-  } else if (isSerializeBefore) {
-    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
-           !isSerializeAfter && !isAtomic && !isStoreConditional &&
-           !isQuiesce && !isNonSpeculative && op == 1);
-    op = -7;
-  } else if (isSerializeAfter) {
-    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isAtomic &&
-           !isStoreConditional && !isQuiesce && op == 1);
-    assert(isNonSpeculative);
-    if (isSquashAfter)
-      op = -8;
-    else
-      op = -9;
-  } else if (isSquashAfter) {
-    assert(op == 1 && !isUncondCtrl && !isCondCtrl && !isDirectCtrl &&
-           !isAtomic && !isStoreConditional && !isQuiesce && !isNonSpeculative);
-    op = -10;
-  } else if (isCondCtrl || isUncondCtrl || isDirectCtrl) {
-    assert(!isCondCtrl || !isUncondCtrl);
-    assert(op == 1 && !isAtomic && !isStoreConditional && !isQuiesce &&
-           !isNonSpeculative);
-    if (isDirectCtrl) {
-      if (isCondCtrl)
-        op = -11;
-      else
-        op = -12;
-    } else {
-      if (isCondCtrl)
-        op = -13;
-      else
-        op = -14;
-    }
-  } else
-    assert(!isAtomic);
-}
-
 void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
                 Addr PC, Addr *iwa, Addr *dwa, ostream &out) {
   assert(first || (iwa && dwa));
+  Tick fetchLat;
   if (first)
-    out << inTick - tick;
+    fetchLat = inTick - tick;
   else
-    out << tick - inTick;
-  out << " " << completeTick << " " << storeTick << " ";
-  out << op << " " << isMicroOp << " " << isMisPredict << " ";
-  out << srcNum << " ";
+    fetchLat = tick - inTick;
+  int fetchC, completeC, storeC;
+  if (fetchLat <= 8)
+    fetchC = fetchLat;
+  else
+    fetchC = 9;
+  if (completeTick <= MINCOMPLETELAT + 8)
+    completeC = completeTick - MINCOMPLETELAT;
+  else
+    completeC = 9;
+  if (storeTick == 0)
+    storeC = 0;
+  else if (storeTick <= MINSTORELAT + 7)
+    storeC = storeTick - MINSTORELAT + 1;
+  else
+    storeC = 9;
+  out << fetchC << " " << fetchLat << " ";
+  out << completeC << " " << completeTick << " ";
+  out << storeC << " " << storeTick << " ";
+
+  out << op + 1 << " " << isMicroOp << " " << isMisPredict << " " << isCondCtrl
+       << " " << isUncondCtrl << " " << isDirectCtrl << " " << isSquashAfter
+       << " " << isSerializeAfter << " " << isSerializeBefore << " " << isAtomic
+       << " " << isStoreConditional << " " << isMemBar << " " << isQuiesce
+       << " " << isNonSpeculative << " ";
   for (int i = 0; i < srcNum; i++)
-    out << srcClass[i] << " " << srcIndex[i] << " ";
-  out << destNum << " ";
+    out << getReg(srcClass[i], srcIndex[i]) << " ";
+  for (int i = srcNum; i < SRCREGNUM; i++)
+    out << "0 ";
   for (int i = 0; i < destNum; i++)
-    out << destClass[i] << " " << destIndex[i] << " ";
+    out << getReg(destClass[i], destIndex[i]) << " ";
+  for (int i = destNum; i < DSTREGNUM; i++)
+    out << "0 ";
 
   // Instruction cache depth.
   out << fetchDepth << " ";
@@ -248,7 +223,7 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
   out << pc % 64 << " ";
   // Instruction walk depth.
   for (int i = 0; i < 3; i++)
-    out << iwalkDepth[i] << " ";
+    out << iwalkDepth[i] + 1 << " ";
   // Instruction page conflict.
   int iconflict = 0;
   if (!first)
@@ -275,7 +250,7 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
     out << "0 ";
   // Data walk depth.
   for (int i = 0; i < 3; i++)
-    out << dwalkDepth[i] << " ";
+    out << dwalkDepth[i] + 1 << " ";
   // Data page conflict.
   int dconflict = 0;
   if (!first && is_addr && isAddr)
