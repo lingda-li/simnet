@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
   ifstream sqtrace(argv[2]);
-  if (!trace.is_open()) {
+  if (!sqtrace.is_open()) {
     cerr << "Cannot open SQ trace file.\n";
     return 0;
   }
@@ -36,6 +36,10 @@ int main(int argc, char *argv[]) {
   outputName.replace(outputName.end()-3, outputName.end(), "ML");
   cerr << "Write to " << outputName << ".\n";
   ofstream output(outputName);
+  if (!output.is_open()) {
+    cerr << "Cannot open output file.\n";
+    return 0;
+  }
 
   // Current context.
   struct QUEUE *q = new QUEUE;
@@ -60,6 +64,8 @@ int main(int argc, char *argv[]) {
 
   cerr << "Finish at " << curTick << ".\n";
   trace.close();
+  sqtrace.close();
+  output.close();
   return 0;
 }
 
