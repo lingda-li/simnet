@@ -8,8 +8,8 @@ from ml_format import *
 iter_num = 1024 * 16 * 32 * 16
 
 parser = argparse.ArgumentParser(description="Make ML dataset")
-parser.add_argument('--start', type=int, nargs=1, default=0)
-parser.add_argument('--end', type=int, nargs=1, default=0)
+parser.add_argument('--start', type=int, default=0)
+parser.add_argument('--end', type=int, default=0)
 parser.add_argument('fname', nargs='*')
 args = parser.parse_args()
 
@@ -36,24 +36,22 @@ with open(fname) as f:
         except:
             bad_lines += 1
             continue
-        print(vals)
+        #print(vals)
 
         try:
-            feat = make_feature_from_context(vals)
             assert len(vals) % inst_length == 0
             assert len(vals) <= context_length*inst_length
             all_feats[nfilled, 0:len(vals)] = np.array(vals)
-            print(all_feats[nfilled])
+            #print(all_feats[nfilled])
             nfilled += 1
             nlines += 1
+            if end != 0:
+                if nlines == end:
+                    break
         except:
             print("Bad content: ", vals)
             bad_content += 1
             continue
-
-        if end != 0:
-            if nlines == end:
-                break
 
         if nfilled == iter_num:
             print("So far see %d" % nlines)
