@@ -279,51 +279,70 @@ float *read_numbers(char *fname, int sz) {
   return ret;
 }
 
-void CNN3_P_inference(cublasHandle_t &handle, CNN3_P *model_device,CNN3_P *model_host, float *output, float *X_device)
+void CNN3_P_inference(cublasHandle_t &handle, CNN3_P *model_device,CNN3_P *model_host,custom_t *X_device, int batch_size)
 {
   int N_blocks = 128; int N_threads = 128; int status=1;
-  Convp<<<N_blocks,196>>>(&model_device->conv_p, X_device);
+  Convp<<<N_blocks,196>>>(&model_device->conv_p, X_device, batch_size);
   H_ERR(cudaDeviceSynchronize());
-  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv1, &model_device->conv_p);
+  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv1, &model_device->conv_p, batch_size);
   H_ERR(cudaDeviceSynchronize());     
-  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv2, &model_device->conv1);
+  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv2, &model_device->conv1, batch_size);
   H_ERR(cudaDeviceSynchronize());
-  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv3, &model_device->conv2);
+  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv3, &model_device->conv2, batch_size);
   H_ERR(cudaDeviceSynchronize());
-  status = gpu_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1);
-  H_ERR(cudaDeviceSynchronize());
-  if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
-  matrix_sum_G<<<N_blocks,128>>>(model_host->fc1.output, model_host->fc1.output, model_host->fc1.b, 1, model_host->f1_input,1);
-  H_ERR(cudaDeviceSynchronize());
-  status = gpu_blas_mmul(handle, model_host->fc1.output, model_host->fc2.W,  model_host->fc2.output, 1, model_host->f1, model_host->out);
-  H_ERR(cudaDeviceSynchronize());
-  if(status!=0){printf("Error in FC2 Layer. Status: %d\n",status);}
-  matrix_sum_G<<<N_threads,128>>>(model_host->fc2.output, model_host->fc2.output, model_host->fc2.b, 1, model_host->out,0);
-  H_ERR(cudaDeviceSynchronize());
+
+  if(batch_size)
+    status = gpu_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1);
+    H_ERR(cudaDeviceSynchronize());
+    if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
+    matrix_sum_G<<<N_threads,128>>>(model_host->fc1.output, model_host->fc1.output, model_host->fc1.b, 1, model_host->f1_input,1, batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    status = gpu_blas_mmul(handle, model_host->fc1.output, model_host->fc2.W,  model_host->fc2.output, 1, model_host->f1, model_host->out);
+    H_ERR(cudaDeviceSynchronize());
+    if(status!=0){printf("Error in FC2 Layer. Status: %d\n",status);}
+    matrix_sum_G<<<N_threads,128>>>(model_host->fc2.output, model_host->fc2.output, model_host->fc2.b, 1, model_host->out,0, batch_size);
+    H_ERR(cudaDeviceSynchronize());
 }
  
-void CNN3_inference(cublasHandle_t &handle, CNN3 *model_device, CNN3 *model_host, float *output, float *X_device)
+void CNN3_inference(cublasHandle_t &handle, cudaStream_t stream1, CNN3 *model_device, CNN3 *model_host, custom_t *X_device, int batch_size)
 {
+    int blockSize, N, minGridSize, gridSize;
+  cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, Conv_thread_2, 0, 320);
+  gridSize = (N + blockSize - 1) / blockSize; 
+  //   cout<<"blockSize: "<<blockSize<<", gridsize: " <<gridSize<<endl;
+  cublasSetStream(handle,stream1);
   int N_blocks = 128; int N_threads = 128; int status = 1;
-  // cout<<"CNN3 model\n";
-  // cout<<"Inference called"<<endl;
-  Conv_thread<<<N_blocks,196>>>(&model_device->conv1, X_device);
+  // Best occupancy: 256 blocks, 128 threads
+  Conv_thread<<<N_blocks,196,0,stream1>>>(&model_device->conv1, X_device,batch_size);
   H_ERR(cudaDeviceSynchronize());
-  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv2,&model_device->conv1);
+  //   exit(0);
+  Conv_thread_2<<<N_blocks,320,0,stream1>>>(&model_device->conv2,&model_device->conv1,batch_size);
   H_ERR(cudaDeviceSynchronize());
-  Conv_thread_2<<<N_blocks,320>>>(&model_device->conv3,&model_device->conv2);
+  Conv_thread_2<<<256,320,0,stream1>>>(&model_device->conv3,&model_device->conv2,batch_size);
   H_ERR(cudaDeviceSynchronize());
-  status = gpu_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1);
+  if(batch_size>1){
+    
+    status = gpu_strided_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1,batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
+    // matrix_sum_G<<<N_blocks,128,0,stream1>>>(model_host->fc1.output, model_host->fc1.output, model_host->fc1.b, 1, model_host->f1_input,1,batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    status = gpu_strided_blas_mmul(handle, model_host->fc1.output, model_host->fc2.W,  model_host->fc2.output, 1, model_host->f1, model_host->out, batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    if(status!=0){printf("Error in FC2 Layer. Status: %d\n",status);}
+    // matrix_sum_G<<<N_blocks,128,0,stream1>>>(model_host->fc2.output, model_host->fc2.output, model_host->fc2.b, 1, model_host->out,0,batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    }
+  else{
+    status = gpu_blas_mmul(handle, model_host->conv3.output, model_host->fc1.W, model_host->fc1.output,  1, model_host->f1_input, model_host->f1);
+    if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
+    matrix_sum_G<<<N_blocks,128,0,stream1>>>(model_host->fc1.output, model_host->fc1.output, model_host->fc1.b, 1, model_host->f1_input,1,batch_size);
+    H_ERR(cudaDeviceSynchronize());
+    status = gpu_blas_mmul(handle, model_host->fc1.output, model_host->fc2.W,  model_host->fc2.output, 1, model_host->f1, model_host->out);
+    if(status!=0){printf("Error in FC2 Layer. Status: %d\n",status);}
+    matrix_sum_G<<<N_blocks,128,0,stream1>>>(model_host->fc2.output, model_host->fc2.output, model_host->fc2.b, 1, model_host->out,0,batch_size);
+  }
   H_ERR(cudaDeviceSynchronize());
-  if(status!=0){printf("Error in FC1 Layer. Status: %d\n",status);}
-  matrix_sum_G<<<N_blocks,128>>>(model_host->fc1.output, model_host->fc1.output, model_host->fc1.b, 1, model_host->f1_input,1);
-  H_ERR(cudaDeviceSynchronize());
-  status = gpu_blas_mmul(handle, model_host->fc1.output, model_host->fc2.W,  model_host->fc2.output, 1, model_host->f1, model_host->out);
-  H_ERR(cudaDeviceSynchronize());
-  if(status!=0){printf("Error in FC2 Layer. Status: %d\n",status);}
-  matrix_sum_G<<<N_threads,128>>>(model_host->fc2.output, model_host->fc2.output, model_host->fc2.b, 1, model_host->out,0);
-  H_ERR(cudaDeviceSynchronize());
-  
 }
 
 
@@ -350,22 +369,23 @@ int main(int argc, char *argv[]) {
   }
 
   // H_ERR(cudaSetDevice(3));
+  int batch_size=1;
   #ifdef CNN3_MODEL
         CNN3 *model_device;
         H_ERR(cudaMalloc((void **)&model_device, sizeof(CNN3)));
         printf("Size of CNN3: %d\n",sizeof(CNN3));
-        CNN3 model_host( 2, 5, 64, 5, 64, 5, 256, 400);
+        CNN3 model_host( 2, 5, 64, 5, 64, 5, 256, 400, batch_size);
         H_ERR(cudaMemcpy(model_device, &model_host, sizeof(CNN3), cudaMemcpyHostToDevice));
     #else
         CNN3_P *model_device;
         H_ERR(cudaMalloc((void **)&model_device, sizeof(CNN3_P)));
         printf("Size of CNN3_P: %d\n",sizeof(CNN3_P));
-        CNN3_P model_host(2, 64, 5, 64, 5, 64, 5, 256, 400);
+        CNN3_P model_host(2, 64, 5, 64, 5, 64, 5, 256, 400,batch_size);
         H_ERR(cudaMemcpy(model_device, &model_host, sizeof(CNN3_P), cudaMemcpyHostToDevice));
     #endif
   
-  
-  int batch_size=1;
+    cudaStream_t stream1;
+    cudaStreamCreate(&stream1);
   custom_t *X_host, *X_device;
   X_host = (custom_t *) malloc(inst_length*batch_size*context_length*sizeof(custom_t));
   H_ERR(cudaMalloc((void **)&X_device, sizeof(custom_t)*inst_length*batch_size*context_length));
@@ -452,16 +472,6 @@ int main(int argc, char *argv[]) {
       gettimeofday(&end, NULL);
       float *X_host;
       X_host = (custom_t *) malloc(inst_length*batch_size*context_length*sizeof(custom_t));
-    //   FILE *dims;
-    //   dims = fopen("input.bin","rb");
-    //   if (!dims)
-    // {
-    //   printf("Unable to open input file!");
-    //   exit(0);
-    //   }
-    //   int reads= fread(X_host,sizeof(float),(inst_length*context_length),dims);
-    //   printf("%d items read.\n",reads); 
-    // cout<<"Input: \n";
       for(int i=0;i<(inst_length*context_length);i++)
       {
           // printf("%.2f, \t",inputPtr[i]);
@@ -470,11 +480,11 @@ int main(int argc, char *argv[]) {
       H_ERR(cudaMemcpy(X_device,inputPtr,sizeof(float)*inst_length*batch_size*context_length, cudaMemcpyHostToDevice));
       float *output= (float*) malloc(2*sizeof(float)); output[0] = 0; output[1] = 0; 
       #ifdef CNN3_MODEL
-        CNN3_inference(handle, model_device, &model_host, output, X_device);  
-      #else 
-        CNN3_P_inference(handle, model_device, &model_host, output, X_device);
-      #endif
-      // at::Tensor output = lat_module.forward(inputs).toTensor();
+      CNN3_inference(handle, stream1, model_device, &model_host, X_device, batch_size);  
+  #else
+          
+      CNN3_P_inference(handle, model_device, &model_host, X_device, batch_size);
+  #endif
       H_ERR(cudaMemcpy(output,model_host.fc2.output,sizeof(custom_t )*2, cudaMemcpyDeviceToHost));
       // printf("Output: %.4f, %.4f\n",output[0],output[1]);
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
