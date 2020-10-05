@@ -67,15 +67,9 @@ for i in range(1, len(sys.argv)):
 
 
 print("Vals seen for 'Context length':",all_context_lengths, "Len is %d" % len(all_context_lengths))
-print("Vals seen for 'Time out':",all_time_outs,"Len is %d" % len(all_time_outs))
 print("Vals seen for 'Time in':",all_time_ins,"Len is %d" % len(all_time_ins))
+print("Vals seen for 'Time out':",all_time_outs,"Len is %d" % len(all_time_outs))
+print("Vals seen for 'Time store':",all_time_stores,"Len is %d" % len(all_time_stores))
 print("Vals seen for 'Instruction type':",all_instr_types, "Len is %d" % len(all_instr_types))
-print("Vals seen for '# of source registers':",all_src_reg_counts, "Len is %d" % len(all_src_reg_counts))
-print("Vals seen for 'Source register type':",all_src_reg_types, "Len is %d" % len(all_src_reg_types))
-print("Vals seen for 'Source register index':",all_src_reg_indices, "Len is %d" % len(all_src_reg_indices))
-print("Vals seen for '# of dest registers':",all_dst_reg_counts, "Len is %d" % len(all_dst_reg_counts))
-print("Vals seen for 'Dest register type':",all_dst_reg_types, "Len is %d" % len(all_dst_reg_types))
-print("Vals seen for 'Dest register index':",all_dst_reg_indices, "Len is %d" % len(all_dst_reg_indices))
-print("Vals seen for 'Register':",all_regs, "Len is %d" % len(all_regs))
 print("Vals seen for 'PC':",all_pcs, "Len is %d" % len(all_pcs))
 print("Good lines: ", nlines, "Bad lines: ", bad_lines)
