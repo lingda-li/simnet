@@ -24,11 +24,11 @@ for i in range(1, len(sys.argv)):
         for line in f:
             try:
                 vals = [int(s) for s in line.rstrip().split(' ')]
+                ctxt_len = len(split_instr(vals))
             except:
                 bad_lines += 1
                 continue
 
-            ctxt_len = len(split_instr(vals))
             if ctxt_len not in all_context_lengths:
                 all_context_lengths.add(ctxt_len)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-context_length = 94
+context_length = 111
 inst_length = 53
 
 # fields.
