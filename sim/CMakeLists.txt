@@ -4,6 +4,7 @@ project(sim)
 find_package(Torch REQUIRED)
 
 add_executable(simulator simulator.cpp)
+add_executable(simulator_parallel parall_simnet.cpp)
 add_executable(simulator_ground_truth simulator.cpp)
 add_executable(simulator_cla simulator.cpp)
 
