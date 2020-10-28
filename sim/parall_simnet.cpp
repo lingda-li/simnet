@@ -506,11 +506,13 @@ int main(int argc, char *argv[])
         cout << "Count:" << count << endl;
 #endif
       }
+    }  
     gettimeofday(&start_first, NULL);
     i=0;
     // Parallel inference
     /************************************************************************************************/
-    if(i<nGPU){    
+    #pragma omp parallel for
+    for(i=0;i<nGPU; i++){ 
       if(inference_count[i]){
         std::vector<torch::jit::IValue> inputs;
         inputs.push_back(input);
@@ -525,7 +527,10 @@ int main(int argc, char *argv[])
     measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
     // cout<<output<<endl;
     // break;
-    // Aggregate results 
+    // Aggregate results
+    #pragma omp parallel for
+    for (i = 0; i < Total_Trace; i++)
+    {  
       if(!eof[i]){
       int GPU_ID = (i+1)%nGPU;
       float fetch_lat = output[GPU_ID][index[i]][0].item<float>() * factor[1] + mean[1];
@@ -563,7 +568,7 @@ int main(int argc, char *argv[])
         cout<<"continue"<<endl;
         #endif
       }
-      
+      }
     }
     
       /************************************************************************************************/
