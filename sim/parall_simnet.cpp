@@ -10,7 +10,7 @@
 
 using namespace std;
 //#define CLASSIFY
-// #define DEBUG
+//#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
@@ -406,9 +406,10 @@ int main(int argc, char *argv[])
   double measured_time = 0.0;
   struct timeval start, end, total_start, total_end, end_first, start_first;
   gettimeofday(&total_start, NULL);
-  at::Tensor input = torch::ones({batch_size, ML_SIZE});
+  //at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
   while (stop_flag != 1)
   {
+    at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
     int inference_count[nGPU];
     Inst **newInst;
     newInst = new Inst *[Total_Trace];    
@@ -509,17 +510,24 @@ int main(int argc, char *argv[])
     }  
     gettimeofday(&start_first, NULL);
     i=0;
+#ifdef DEBUG
+    cout<<"*************  Inference ********************"<<endl;
+#endif
     // Parallel inference
     /************************************************************************************************/
     #pragma omp parallel for
     for(i=0;i<nGPU; i++){ 
       if(inference_count[i]){
         std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input);
+        inputs.push_back(input.cuda());
         output[i] = lat_module.forward(inputs).toTensor();
         inference_count[i]=0;
+	//std::cout << "inputs shape = " << inputs.size() << "\n";
       }
     }
+        //std::cout << "output shape = " << output[0].sizes() << "\n";
+	//std::cout << "input shape = " << input.sizes() << "\n";
+	        //std::cout << "inputs shape = " << inputs.sizes() << "\n";
     gettimeofday(&end_first, NULL);
     double total_time = end_first.tv_sec - start_first.tv_sec + (end_first.tv_usec - start_first.tv_usec) / 1000000.0;
     // cout<<"Rob time: "<<total_time<< endl;
@@ -533,8 +541,8 @@ int main(int argc, char *argv[])
     {  
       if(!eof[i]){
       int GPU_ID = (i+1)%nGPU;
-      float fetch_lat = output[GPU_ID][index[i]][0].item<float>() * factor[1] + mean[1];
-      float finish_lat = output[GPU_ID][index[i]][1].item<float>() * factor[3] + mean[3];
+      float fetch_lat = output[0][i][0].item<float>() * factor[1] + mean[1];
+      float finish_lat = output[0][i][1].item<float>() * factor[3] + mean[3];
       // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
@@ -545,7 +553,7 @@ int main(int argc, char *argv[])
       // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
       #ifdef DEBUG
       #endif
-      newInst[i]->train_data[0] = (-int_fetch_l at - mean[0]) / factor[0];
+      newInst[i]->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
       newInst[i]->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
       newInst[i]->train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
       if (newInst[i]->train_data[2] >= 9 / factor[2])
@@ -624,12 +632,12 @@ int main(int argc, char *argv[])
         stop_flag=false;
       }
     }
-    // #ifdef DEBUG
+    #ifdef DEBUG
     for(int i=0 ; i< Total_Trace;i++)
     {
       cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<"curTick: " << curTick[i] << "Rob status: "<< rob[i].is_empty()<< endl;
     }
-    // #endif
+    #endif
     // cout<<"Stop flag: "<<stop_flag<<endl;
     // #ifdef DEBUG
     // cout<<"Stop flag:"<<stop_flag<<endl<<endl;
