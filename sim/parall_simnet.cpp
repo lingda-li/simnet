@@ -10,12 +10,13 @@
 
 using namespace std;
 //#define CLASSIFY
-//#define DEBUG
+// #define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
+#define PREFETCH
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
@@ -368,6 +369,10 @@ int main(int argc, char *argv[])
   int int_fetch_latency[Total_Trace];
   int int_finish_latency[Total_Trace];
   bool eof[Total_Trace];
+#ifdef PREFETCH
+  char Trace_Buffer[Total_Trace][20000];
+  char AuxTrace_Buffer[Total_Trace][20000];
+#endif
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
@@ -380,6 +385,10 @@ int main(int argc, char *argv[])
     int offset = i * Batch_size;
     std::string line;
     int number_of_lines = 0;
+    #ifdef PREFETCH
+    	trace[i].rdbuf()->pubsetbuf(Trace_Buffer[i], 20000);    
+    	aux_trace[i].rdbuf()->pubsetbuf(AuxTrace_Buffer[i], 20000);
+    #endif
     trace[i].open(argv[1]);
     while (std::getline(trace[i], line) && (number_of_lines < offset))
       ++number_of_lines;
@@ -406,19 +415,19 @@ int main(int argc, char *argv[])
   double measured_time = 0.0;
   struct timeval start, end, total_start, total_end, end_first, start_first;
   gettimeofday(&total_start, NULL);
-  //at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
   while (stop_flag != 1)
   {
-    at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
     int inference_count[nGPU];
     Inst **newInst;
     newInst = new Inst *[Total_Trace];    
+    std::vector<at::Tensor> inputs_vec[nGPU];
     at::Tensor output[nGPU];
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     {
       
-      
+      at::Tensor input = torch::ones({1, ML_SIZE});
+      float *inputPtr = input.data_ptr<float>();
       // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
       if (!eof[i] || !rob[i].is_empty())
       {
@@ -479,14 +488,23 @@ int main(int argc, char *argv[])
             #endif
             rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
           }
-          float *inputPtr = input.data_ptr<float>();
-          inputPtr= inputPtr + ML_SIZE * i;
           // cout<<input<<endl;
           rob[i].make_train_data(inputPtr);
           // cout<<input<<endl;
           // Determine the GPU to push the result.
           // int GPU_ID = 0;
           int GPU_ID = (i+1)%nGPU;
+#pragma omp critical
+          {
+#ifdef GPU
+          inputs_vec[GPU_ID].push_back(input.cuda());
+#else
+          inputs_vec[GPU_ID].push_back(input);
+#endif
+          index[i] = inputs_vec[GPU_ID].size() - 1;
+          }
+          #pragma omp atomic
+            inference_count[GPU_ID]+=1;
           // inputs[GPU_ID].push_back(input.cuda());
           if ((fetched[i] == FETCH_BANDWIDTH) )
           {
@@ -507,27 +525,21 @@ int main(int argc, char *argv[])
         cout << "Count:" << count << endl;
 #endif
       }
-    }  
+    }
     gettimeofday(&start_first, NULL);
     i=0;
-#ifdef DEBUG
-    cout<<"*************  Inference ********************"<<endl;
-#endif
     // Parallel inference
     /************************************************************************************************/
     #pragma omp parallel for
-    for(i=0;i<nGPU; i++){ 
+    for(i=0;i<nGPU; i++){    
       if(inference_count[i]){
+        at::Tensor input_ = torch::cat(inputs_vec[i]);
         std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input.cuda());
+        inputs.push_back(input_);
         output[i] = lat_module.forward(inputs).toTensor();
         inference_count[i]=0;
-	//std::cout << "inputs shape = " << inputs.size() << "\n";
       }
     }
-        //std::cout << "output shape = " << output[0].sizes() << "\n";
-	//std::cout << "input shape = " << input.sizes() << "\n";
-	        //std::cout << "inputs shape = " << inputs.sizes() << "\n";
     gettimeofday(&end_first, NULL);
     double total_time = end_first.tv_sec - start_first.tv_sec + (end_first.tv_usec - start_first.tv_usec) / 1000000.0;
     // cout<<"Rob time: "<<total_time<< endl;
@@ -536,19 +548,19 @@ int main(int argc, char *argv[])
     // cout<<output<<endl;
     // break;
     // Aggregate results
-    #pragma omp parallel for
+#pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
-    {  
+    { 
       if(!eof[i]){
       int GPU_ID = (i+1)%nGPU;
-      float fetch_lat = output[0][i][0].item<float>() * factor[1] + mean[1];
-      float finish_lat = output[0][i][1].item<float>() * factor[3] + mean[3];
+      float fetch_lat = output[GPU_ID][index[i]][0].item<float>() * factor[1] + mean[1];
+      float finish_lat = output[GPU_ID][index[i]][1].item<float>() * factor[3] + mean[3];
       // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
       if (int_fetch_lat < 0)
         int_fetch_lat = 0;            
-      if (int_finish_lat < MIN_COMP_LAT) 
+      if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
       // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
       #ifdef DEBUG
