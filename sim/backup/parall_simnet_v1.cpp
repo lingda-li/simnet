@@ -16,8 +16,6 @@ using namespace std;
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
-#define PREFETCH
-#define ROB_ANALYSIS
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
@@ -370,10 +368,6 @@ int main(int argc, char *argv[])
   int int_fetch_latency[Total_Trace];
   int int_finish_latency[Total_Trace];
   bool eof[Total_Trace];
-#ifdef PREFETCH
-  char Trace_Buffer[Total_Trace][20000];
-  char AuxTrace_Buffer[Total_Trace][20000];
-#endif
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
@@ -386,10 +380,6 @@ int main(int argc, char *argv[])
     int offset = i * Batch_size;
     std::string line;
     int number_of_lines = 0;
-    #ifdef PREFETCH
-    	trace[i].rdbuf()->pubsetbuf(Trace_Buffer[i], 20000);    
-    	aux_trace[i].rdbuf()->pubsetbuf(AuxTrace_Buffer[i], 20000);
-    #endif
     trace[i].open(argv[1]);
     while (std::getline(trace[i], line) && (number_of_lines < offset))
       ++number_of_lines;
@@ -418,7 +408,6 @@ int main(int argc, char *argv[])
   gettimeofday(&total_start, NULL);
   while (stop_flag != 1)
   {
-    at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
     int inference_count[nGPU];
     Inst **newInst;
     newInst = new Inst *[Total_Trace];    
@@ -428,8 +417,8 @@ int main(int argc, char *argv[])
     for (i = 0; i < Total_Trace; i++)
     {
       
-      //at::Tensor input = torch::ones({1, ML_SIZE});
-      //float *inputPtr = input.data_ptr<float>();
+      at::Tensor input = torch::ones({1, ML_SIZE});
+      float *inputPtr = input.data_ptr<float>();
       // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
       if (!eof[i] || !rob[i].is_empty())
       {
@@ -491,13 +480,23 @@ int main(int argc, char *argv[])
             rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
           }
           // cout<<input<<endl;
-          float *inputPtr = input.data_ptr<float>();
-          inputPtr= inputPtr + ML_SIZE * i;
-	  rob[i].make_train_data(inputPtr);
+          rob[i].make_train_data(inputPtr);
           // cout<<input<<endl;
           // Determine the GPU to push the result.
           // int GPU_ID = 0;
           int GPU_ID = (i+1)%nGPU;
+#pragma omp critical
+          {
+#ifdef GPU
+          inputs_vec[GPU_ID].push_back(input.cuda());
+#else
+          inputs_vec[GPU_ID].push_back(input);
+#endif
+          index[i] = inputs_vec[GPU_ID].size() - 1;
+          }
+          #pragma omp atomic
+            inference_count[GPU_ID]+=1;
+          // inputs[GPU_ID].push_back(input.cuda());
           if ((fetched[i] == FETCH_BANDWIDTH) )
           {
             ROB_flag[i] = true; 
@@ -525,13 +524,11 @@ int main(int argc, char *argv[])
     #pragma omp parallel for
     for(i=0;i<nGPU; i++){    
       if(inference_count[i]){
+        at::Tensor input_ = torch::cat(inputs_vec[i]);
         std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input.cuda());
-        #ifdef ROB_ANALYSIS
-	#else
-	output[i] = lat_module.forward(inputs).toTensor();
-        #endif
-     	inference_count[i]=0;
+        inputs.push_back(input_);
+        output[i] = lat_module.forward(inputs).toTensor();
+        inference_count[i]=0;
       }
     }
     gettimeofday(&end_first, NULL);
@@ -547,10 +544,8 @@ int main(int argc, char *argv[])
     { 
       if(!eof[i]){
       int GPU_ID = (i+1)%nGPU;
-      //float fetch_lat = output[0][i][0].item<float>() * factor[1] + mean[1];
-      //float finish_lat = output[0][i][1].item<float>() * factor[3] + mean[3];
-      float fetch_lat =  2.5665* factor[1] + mean[1];
-      float finish_lat =  3.3545* factor[3] + mean[3];
+      float fetch_lat = output[GPU_ID][index[i]][0].item<float>() * factor[1] + mean[1];
+      float finish_lat = output[GPU_ID][index[i]][1].item<float>() * factor[3] + mean[3];
       // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
@@ -558,10 +553,6 @@ int main(int argc, char *argv[])
         int_fetch_lat = 0;            
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
-#ifdef ROB_ANALYSIS
-      int_finish_lat = newInst[i]->trueCompleteTick;
-            int_fetch_lat = newInst[i]->trueFetchTick;
-#endif
       // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
       #ifdef DEBUG
       #endif
@@ -644,12 +635,12 @@ int main(int argc, char *argv[])
         stop_flag=false;
       }
     }
-    #ifdef DEBUG
+    // #ifdef DEBUG
     for(int i=0 ; i< Total_Trace;i++)
     {
       cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<"curTick: " << curTick[i] << "Rob status: "<< rob[i].is_empty()<< endl;
     }
-    #endif
+    // #endif
     // cout<<"Stop flag: "<<stop_flag<<endl;
     // #ifdef DEBUG
     // cout<<"Stop flag:"<<stop_flag<<endl<<endl;
