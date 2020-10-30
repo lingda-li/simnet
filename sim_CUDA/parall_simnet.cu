@@ -15,12 +15,13 @@
 
 using namespace std;
 //#define CLASSIFY
-// #define DEBUG
+//#define DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
+#define PREFETCH
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
@@ -430,7 +431,11 @@ float *varPtr = NULL;
   int int_fetch_latency[Total_Trace];
   int int_finish_latency[Total_Trace];
   bool eof[Total_Trace];
-
+#ifdef PREFETCH
+    char Trace_Buffer[Total_Trace][20000];
+      char AuxTrace_Buffer[Total_Trace][20000];
+#endif
+ 
   cout<<"Model\n";
     // H_ERR(cudaSetDevice(3));
   #ifdef CNN3_MODEL
@@ -465,6 +470,10 @@ float *varPtr = NULL;
     int offset = i * Batch_size;
     std::string line;
     int number_of_lines = 0;
+        #ifdef PREFETCH
+        	trace[i].rdbuf()->pubsetbuf(Trace_Buffer[i], 20000);    
+		    	aux_trace[i].rdbuf()->pubsetbuf(AuxTrace_Buffer[i], 20000);
+			    #endif
     trace[i].open(argv[1]);
     while (std::getline(trace[i], line) && (number_of_lines < offset))
       ++number_of_lines;
@@ -494,20 +503,24 @@ float *varPtr = NULL;
   struct timeval start, end, total_start, total_end, end_first, start_first;
   gettimeofday(&total_start, NULL);
   cout<<"Simulation started\n";
+  //float *inputPtr = (float*) malloc((Total_Trace+1)*ML_SIZE*sizeof(float));
+  cout<<" Pointer:"<<inputPtr<<endl;
   while (stop_flag != 1)
   {
     int inference_count[nGPU];
-    int temp_index[Total_Trace*nGPU];
+    //int temp_index[Total_Trace*nGPU];
     Inst **newInst;
     newInst = new Inst *[Total_Trace];  
-    global_batch_count=0;  
+    //global_batch_count=0;  
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     {
       inference_count[i] = 0; 
       // at::Tensor input = torch::ones({1, ML_SIZE});
-      float *inputPtr = (float*) malloc(Total_Trace*ML_SIZE*sizeof(float));
+      //float *inputPtr = (float*) malloc((Total_Trace+1)*ML_SIZE*sizeof(float));
+      //cout<<" Pointer:"<<inputPtr<<endl;
       // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
+      //cout<<"I: "<<i<<" Eof: "<<eof[i]<<endl;
       if (!eof[i] || !rob[i].is_empty())
       {
         // Retire instructions.
@@ -530,7 +543,8 @@ float *varPtr = NULL;
           if (inst_num_all[i] >( Batch_size-1))
           {
             eof[i]= true;
-            rob[i].head = (rob[i].tail);
+            //cout<<"I: "<<i<<" Eof True"<<endl;
+	    rob[i].head = (rob[i].tail);
             #ifdef DEBUG
             cout <<"Trace: "<<i<< " ,end of batch size inst_num_all. Is empty: "<< rob[i].is_empty() << endl;
             #endif
@@ -568,8 +582,9 @@ float *varPtr = NULL;
             rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
           }
           // cout<<input<<endl;
-          int temp_index=0;
-          #pragma omp atomic
+          //int temp_index=0;
+          /*
+	#pragma omp atomic
           {
             temp_index =global_batch_count;
             global_batch_count+=1;
@@ -582,9 +597,10 @@ float *varPtr = NULL;
             index[i]= inference_count[GPU_ID];
             inference_count[GPU_ID]+=1;
           }
-          // cout<<"Index: "<<index[i]<<endl;
-          float *offset_pointer= inputPtr + ML_SIZE * index[i];
-          rob[i].make_train_data(offset_pointer);
+	  */
+          float *offsetPtr = inputPtr + ML_SIZE * i;
+          //cout<<"Trace: "<<i<<" Pointer:"<<offsetPtr<<endl;
+	  rob[i].make_train_data(offsetPtr);
           if ((fetched[i] == FETCH_BANDWIDTH) )
           {
             ROB_flag[i] = true; 
@@ -607,24 +623,29 @@ float *varPtr = NULL;
     }
     gettimeofday(&start_first, NULL);
     i=0;
+    //cout<<"Inference time"<<endl;
     // Parallel inference
     /************************************************************************************************/
+ 
     #pragma omp parallel for
     for(i=0;i<nGPU; i++){    
       if(inference_count[i]){
         cudaMemset((void**)&X_device, 0, inst_length*Total_Trace*context_length*sizeof(float)); 
         H_ERR(cudaMemcpy(X_device,inputPtr,sizeof(float)*inst_length*Total_Trace*context_length, cudaMemcpyHostToDevice));
-        memset(output, 0, sizeof(output)); 
+        memset(output, 0, sizeof(output));
+       	
         #ifdef CNN3_MODEL
-        CNN3_inference(handle, stream1, model_device, &model_host, X_device, Total_Trace);  
+        //CNN3_inference(handle, stream1, model_device, &model_host, X_device, Total_Trace);  
     #else
             
-        CNN3_P_inference(handle, model_device, &model_host, X_device, Total_Trace);
+        //CNN3_P_inference(handle, model_device, &model_host, X_device, Total_Trace);
     #endif
+    
       H_ERR(cudaMemcpy(output,model_host.fc2.output,sizeof(custom_t )*2, cudaMemcpyDeviceToHost));
         inference_count[i]=0;
       }
     }
+    //cout<<"Inference ended"<<endl;
     gettimeofday(&end_first, NULL);
     double total_time = end_first.tv_sec - start_first.tv_sec + (end_first.tv_usec - start_first.tv_usec) / 1000000.0;
     measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
@@ -636,11 +657,13 @@ float *varPtr = NULL;
     { 
       if(!eof[i]){
       int GPU_ID = (i+1)%nGPU;
-      float fetch_lat = output[0 + index[i]*2] * factor[1] + mean[1];
-      float finish_lat = output[1 + index[i]*2] * factor[3] + mean[3];
+      float fetch_lat = output[0 + i*2] * factor[1] + mean[1];
+      float finish_lat = output[1 + i*2] * factor[3] + mean[3];
       // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
+      int_finish_lat = newInst[i]->trueCompleteTick;
+      int_fetch_lat = newInst[i]->trueFetchTick;
       if (int_fetch_lat < 0)
         int_fetch_lat = 0;            
       if (int_finish_lat < MIN_COMP_LAT)
@@ -708,7 +731,7 @@ float *varPtr = NULL;
           Case3++;
         }
         #ifdef DEBUG
-        cout<< "curTick: " << curTick[i]<<endl;
+        cout<<"Trace: "<< i <<" curTick: " << curTick[i]<<endl;
         #endif
         int_fetch_latency[i] = 0;
       }
@@ -718,7 +741,7 @@ float *varPtr = NULL;
     stop_flag = true;
     for(int i=0 ; i< Total_Trace;i++)
     {
-      // cout<< "eof[ " << i << "]= " << eof[i]<<endl;
+      //cout<< "eof[ " << i << "]= " << eof[i]<<endl;
       if(!eof[i] || !rob[i].is_empty())
       
       {
