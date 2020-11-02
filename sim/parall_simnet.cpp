@@ -11,13 +11,14 @@
 using namespace std;
 //#define CLASSIFY
 // #define DEBUG
+// #define NGPU_DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
 #define PREFETCH
-#define ROB_ANALYSIS
+// #define ROB_ANALYSIS
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
@@ -312,29 +313,13 @@ int main(int argc, char *argv[])
     return 0;
   }
 
-  torch::jit::script::Module lat_module;
-  try
-  {
-    // Deserialize the ScriptModule from a file using torch::jit::load().
-    lat_module = torch::jit::load(argv[3]);
-#ifdef GPU
-    lat_module.to(torch::kCUDA);
-#endif
-  }
-
-  catch (const c10::Error &e)
-  {
-    cerr << "error loading the model\n";
-    return 0;
-  }
-
   float *varPtr = NULL;
 #ifdef CLASSIFY
-  if (argc > 6)
-    varPtr = read_numbers(argv[5], TD_SIZE);
+  if (argc > 7)
+    varPtr = read_numbers(argv[6], TD_SIZE);
 #else
-  if (argc > 5)
-    varPtr = read_numbers(argv[4], TD_SIZE);
+  if (argc > 6)
+    varPtr = read_numbers(argv[6], TD_SIZE);
 #endif
   if (varPtr)
     cout << "Use input factors.\n";
@@ -356,8 +341,37 @@ int main(int argc, char *argv[])
         ++lines;
     // std::cout << "Number of lines in text file: " << lines;
   int Total_instr = lines;
-  int nGPU = 1;
+  
   int Batch_size = Total_instr / Total_Trace;
+
+  int nGPU = atoi(argv[5]);
+  torch::jit::script::Module lat_module[nGPU];
+  at::Tensor input[nGPU]; 
+  // cout<<dev<<endl;
+  try
+  {
+    // Deserialize the ScriptModule from a file using torch::jit::load().
+    #ifdef GPU
+    #pragma omp parallel for
+    for (int i = 0; i < nGPU; i++)
+    {
+      lat_module[i]= torch::jit::load(argv[3]);
+      input[i] = torch::ones({Total_Trace/nGPU, ML_SIZE}); 
+      string dev= "cuda:";
+      string id = to_string(i);
+      dev = dev + id;
+      const std::string device_string = dev;
+      lat_module[i].to(device_string);
+    }
+    #endif
+  }
+  catch (const c10::Error &e)
+  {
+    cerr << "error loading the model\n";
+    return 0;
+  }
+
+
   ifstream trace[Total_Trace];
   ifstream aux_trace[Total_Trace];
   Tick curTick[Total_Trace];
@@ -418,17 +432,13 @@ int main(int argc, char *argv[])
   gettimeofday(&total_start, NULL);
   while (stop_flag != 1)
   {
-    at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
     int inference_count[nGPU];
     Inst **newInst;
     newInst = new Inst *[Total_Trace];    
-    std::vector<at::Tensor> inputs_vec[nGPU];
     at::Tensor output[nGPU];
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     {
-      
-      //at::Tensor input = torch::ones({1, ML_SIZE});
       //float *inputPtr = input.data_ptr<float>();
       // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
       if (!eof[i] || !rob[i].is_empty())
@@ -491,13 +501,20 @@ int main(int argc, char *argv[])
             rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
           }
           // cout<<input<<endl;
-          float *inputPtr = input.data_ptr<float>();
-          inputPtr= inputPtr + ML_SIZE * i;
-	  rob[i].make_train_data(inputPtr);
+          int GPU_ID = (i)%nGPU;
+          int offset = i / nGPU;
+          float *inputPtr = input[GPU_ID].data_ptr<float>();
+          inputPtr= inputPtr + ML_SIZE * offset;
+	        rob[i].make_train_data(inputPtr);
+          #ifdef NGPU_DEBUG
+          #pragma omp critical
+          {
+            cout<<"Trace: " << i << " GPU_ID: "<< GPU_ID<<" offset: "<<offset<<" inputPtr: "<<inputPtr<<endl;
+          }
+          #endif
           // cout<<input<<endl;
           // Determine the GPU to push the result.
           // int GPU_ID = 0;
-          int GPU_ID = (i+1)%nGPU;
           if ((fetched[i] == FETCH_BANDWIDTH) )
           {
             ROB_flag[i] = true; 
@@ -520,18 +537,28 @@ int main(int argc, char *argv[])
     }
     gettimeofday(&start_first, NULL);
     i=0;
+    
     // Parallel inference
     /************************************************************************************************/
     #pragma omp parallel for
     for(i=0;i<nGPU; i++){    
       if(inference_count[i]){
         std::vector<torch::jit::IValue> inputs;
-        inputs.push_back(input.cuda());
+        string dev= "cuda:";
+        string id = to_string(i);
+        dev = dev + id;
+        const std::string device_string = dev;
+        inputs.push_back(input[i].to(device_string));
+        #ifdef NGPU_DEBUG
+          #pragma omp critical
+          {
+            cout<< " GPU_ID: "<< i<< " Input dim: "<<input[i].sizes()<<" JIT shape: "<<inputs.size()<<endl;
+          }
+          #endif
         #ifdef ROB_ANALYSIS
-	#else
-	output[i] = lat_module.forward(inputs).toTensor();
+	      #else
+	      output[i] = lat_module[i].forward(inputs).toTensor();
         #endif
-     	inference_count[i]=0;
       }
     }
     gettimeofday(&end_first, NULL);
@@ -546,12 +573,18 @@ int main(int argc, char *argv[])
     for (i = 0; i < Total_Trace; i++)
     { 
       if(!eof[i]){
-      int GPU_ID = (i+1)%nGPU;
-      //float fetch_lat = output[0][i][0].item<float>() * factor[1] + mean[1];
-      //float finish_lat = output[0][i][1].item<float>() * factor[3] + mean[3];
-      float fetch_lat =  2.5665* factor[1] + mean[1];
-      float finish_lat =  3.3545* factor[3] + mean[3];
-      // cout<<"fetch: "<<fetch_lat<<"finish: "<<finish_lat<<endl;
+      int GPU_ID = (i)%nGPU;
+      int offset = i / nGPU;
+      float fetch_lat = output[GPU_ID][offset][0].item<float>() * factor[1] + mean[1];
+      float finish_lat = output[GPU_ID][offset][1].item<float>() * factor[3] + mean[3];
+      // float fetch_lat =  2.5665* factor[1] + mean[1];
+      // float finish_lat =  3.3545* factor[3] + mean[3];
+      #ifdef NGPU_DEBUG
+      #pragma omp critical
+          {
+          cout<<"Trace: "<<i<<" fetch: "<<fetch_lat<<" finish: "<<finish_lat<<endl;
+          }
+      #endif
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
       if (int_fetch_lat < 0)
