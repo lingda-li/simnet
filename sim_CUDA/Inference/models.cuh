@@ -139,7 +139,7 @@ class FC
             #ifdef MODEL_DEBUG
                 printf(" G: %d, C: %d, bias_G: %d, bias_C: %d\n",weight_dim, in*out, bias_dim, out);
             #endif
-            H_ERR(cudaMalloc((void **)&output, sizeof(custom_t) * batch_size * in * out));
+            H_ERR(cudaMalloc((void **)&output, sizeof(custom_t) * batch_size * out));
             H_ERR(cudaMalloc((void **)&W, sizeof(custom_t) * in * out));
             H_ERR(cudaMalloc((void **)&b, sizeof(custom_t) * out));
             custom_t *H_w, *H_b;

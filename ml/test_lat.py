@@ -57,8 +57,7 @@ y = np.copy(x[:,1:2])
 y2 = np.copy(x[:,3:4])
 y = np.concatenate((y, y2), axis=1)
 x[:,0:4] = 0
-print(x.shape)
-print(y.shape)
+print("test data shape: ", x.shape, y.shape)
 
 ## clear depth
 #for i in range(context_length):
@@ -79,7 +78,7 @@ if use_cuda:
   y_test = y_test.to(device)
   torch.save(simnet.module, 'models/' + loaded_model_name + '_cpu')
 value = loss(output,y_test)
-print(value.data)
+print("loss: ", value.data)
 if use_cuda:
   output = output.cpu().detach().numpy()
   target = y_test.cpu().detach().numpy()
@@ -88,8 +87,8 @@ else:
   target = y_test.detach().numpy()
 
 
-print(target)
-print(output)
+print("target: ", target)
+print("output: ", output)
 if pre_scale:
   if out_fetch:
     output = output * np.sqrt(fs['all_var'][1:2])
@@ -113,12 +112,12 @@ if pre_scale:
       mean = np.concatenate((fs['all_mean'][1:2], fs['all_mean'][3:4]), axis=0)
       output += mean
       target += mean
-print(target)
-print(output)
+print("scaled target: ", target)
+print("scaled output: ", output)
 output = np.rint(output)
 target = np.rint(target)
-print(target)
-print(output)
+print("scaled int target: ", target)
+print("scaled int output: ", output)
 
 #plt.figure(figsize=(42,10))
 #plt.plot(target,'.',label='True latency')
@@ -160,7 +159,7 @@ for i in range(2):
         errs[i] = -1
     print(errs)
 
-  print(np.average(errs[errs != -1]))
+  print("cycle err: ", np.average(errs[errs != -1]))
 
   his = np.histogram(errs, bins=range(-1, 100))
   print(errs[errs != -1].size / errs.size)
