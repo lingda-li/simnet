@@ -12,8 +12,8 @@ args = parser.parse_args()
 size = args.size
 outputp = args.fname[0]
 if len(args.fname) > 1:
-    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.ML")
-outputp += "U"
+    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.q")
+outputp += "u"
 
 lines = SortedList()
 nlines = 0

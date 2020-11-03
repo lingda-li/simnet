@@ -61,6 +61,7 @@ struct Inst {
   Tick completeTick;
   Tick outTick;
   Tick storeTick;
+  Tick sqOutTick = 0;
 
   // Read one instruction from SQ and ROB traces.
   bool read(ifstream &ROBtrace, ifstream &SQtrace);
@@ -78,7 +79,12 @@ struct Inst {
 
   // Get ticks.
   Tick robTick() { return inTick + outTick; }
-  Tick sqTick() { return inTick + storeTick; }
+  Tick sqTick() {
+    if (sqOutTick == 0)
+      return inTick + storeTick;
+    else
+      return inTick + sqOutTick;
+  }
 
   // Dump instruction for ML input.
   void dump(Tick tick, bool first, int is_addr, Addr begin, Addr end, Addr PC,

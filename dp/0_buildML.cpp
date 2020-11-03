@@ -9,9 +9,11 @@
 
 using namespace std;
 
+//#define COMBINE_OP
+
 #define TICK_STEP 500
 #define MINCOMPLETELAT 6
-#define MINSTORELAT 6
+#define MINSTORELAT 10
 
 Addr getLine(Addr in) { return in & ~0x3f; }
 int getReg(int C, int I) { return C * MAXREGIDX + I + 1; }
@@ -117,6 +119,9 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
     assert(storeTick >= MINSTORELAT);
   } else
     storeTick = 0;
+#ifdef COMBINE_OP
+  combineOp();
+#endif
 
   // Read source and destination registers.
   *trace >> srcNum;
@@ -177,6 +182,70 @@ void printOP(Inst *i) {
           i->isMemBar, i->isMisPredict);
 }
 
+void Inst::combineOp() {
+  if (isAtomic)
+    printOP(this);
+  if (isMemBar) {
+    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
+           !isSerializeBefore && !isQuiesce && !isNonSpeculative &&
+           (op == 1 || op == 47 || op == 48));
+    if (op == 1) {
+      assert(!isAtomic && !isStoreConditional);
+      if (isSerializeAfter)
+        op = -1;
+      else
+        op = -2;
+    } else if (op == 47) {
+      assert(!isAtomic && !isStoreConditional);
+      op = -3;
+    } else {
+      assert(op == 48 && !isAtomic);
+      if (!isStoreConditional)
+        op = -4;
+      else
+        op = -5;
+    }
+  } else if (isStoreConditional) {
+    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
+           !isSerializeAfter && !isSerializeBefore && !isAtomic && !isQuiesce &&
+           !isNonSpeculative && op == 48);
+    op = -6;
+  } else if (isSerializeBefore) {
+    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isSquashAfter &&
+           !isSerializeAfter && !isAtomic && !isStoreConditional &&
+           !isQuiesce && !isNonSpeculative && op == 1);
+    op = -7;
+  } else if (isSerializeAfter) {
+    assert(!isUncondCtrl && !isCondCtrl && !isDirectCtrl && !isAtomic &&
+           !isStoreConditional && !isQuiesce && op == 1);
+    assert(isNonSpeculative);
+    if (isSquashAfter)
+      op = -8;
+    else
+      op = -9;
+  } else if (isSquashAfter) {
+    assert(op == 1 && !isUncondCtrl && !isCondCtrl && !isDirectCtrl &&
+           !isAtomic && !isStoreConditional && !isQuiesce && !isNonSpeculative);
+    op = -10;
+  } else if (isCondCtrl || isUncondCtrl || isDirectCtrl) {
+    assert(!isCondCtrl || !isUncondCtrl);
+    assert(op == 1 && !isAtomic && !isStoreConditional && !isQuiesce &&
+           !isNonSpeculative);
+    if (isDirectCtrl) {
+      if (isCondCtrl)
+        op = -11;
+      else
+        op = -12;
+    } else {
+      if (isCondCtrl)
+        op = -13;
+      else
+        op = -14;
+    }
+  } else
+    assert(!isAtomic);
+}
+
 void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
                 Addr PC, Addr *iwa, Addr *dwa, ostream &out) {
   assert(first || (iwa && dwa));
@@ -204,11 +273,15 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
   out << completeC << " " << completeTick << " ";
   out << storeC << " " << storeTick << " ";
 
+#ifdef COMBINE_OP
+  out << op + 15 << " " << isMicroOp << " " << isMisPredict << " ";
+#else
   out << op + 1 << " " << isMicroOp << " " << isMisPredict << " " << isCondCtrl
        << " " << isUncondCtrl << " " << isDirectCtrl << " " << isSquashAfter
        << " " << isSerializeAfter << " " << isSerializeBefore << " " << isAtomic
        << " " << isStoreConditional << " " << isMemBar << " " << isQuiesce
        << " " << isNonSpeculative << " ";
+#endif
   for (int i = 0; i < srcNum; i++)
     out << getReg(srcClass[i], srcIndex[i]) << " ";
   for (int i = srcNum; i < SRCREGNUM; i++)

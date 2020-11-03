@@ -9,19 +9,19 @@ using namespace std;
 #define QSIZE 400
 
 struct QUEUE {
-  Inst insts[QSIZE + 1];
+  Inst insts[QSIZE];
   int head = 0;
   int rob_head = 0;
   int tail = 0;
   int inc(int input) {
-    if (input == QSIZE)
+    if (input == QSIZE - 1)
       return 0;
     else
       return input + 1;
   }
   int dec(int input) {
     if (input == 0)
-      return QSIZE;
+      return QSIZE - 1;
     else
       return input - 1;
   }
