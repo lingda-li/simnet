@@ -144,6 +144,41 @@ class CNN3_P(nn.Module):
         x = self.fc2(x)
         return x
 
+class CNN3_F_P(nn.Module):
+    def __init__(self, out, pc, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, f1):
+        super(CNN3_F_P, self).__init__()
+        self.convp = nn.Conv1d(in_channels=inst_length, out_channels=pc, kernel_size=2)
+        self.conv1 = nn.Conv1d(in_channels=pc, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
+        self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
+        self.f1_input = math.floor((context_length - 1 + 2 * cp1 - ck1) / cs1 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp2 - ck2) / cs2 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp3 - ck3) / cs3 + 1)
+        print(self.f1_input)
+        self.f1_input *= ch3
+        self.f1_input = int(self.f1_input)
+        self.fc1 = nn.Linear(self.f1_input, f1)
+        self.fc2 = nn.Linear(f1, out)
+
+    def forward(self, x):
+        x = x.view(-1, inst_length, context_length)
+        xi = torch.cat((x[:, :, 0:1], x[:, :, 1:2]), 2)
+        y = self.convp(xi)
+        for i in range(2, context_length):
+            xi = torch.cat((x[:, :, 0:1], x[:, :, i:i+1]), 2)
+            xo = self.convp(xi)
+            y = torch.cat((y, xo), 2)
+        x = F.relu(y)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = x.view(-1, self.f1_input)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
 class CNN5(nn.Module):
     def __init__(self, out, ck1, ch1, ck2, ch2, ck3, ch3, ck4, ch4, ck5, ch5, f1):
         super(CNN5, self).__init__()
@@ -357,7 +392,7 @@ class CNN3_P_D_C(nn.Module):
         return x
 
 class FC2_P(nn.Module):
-    def __init__(self, out, pc, ck1, ch1, ck2, ch2, ck3, ch3, f1):
+    def __init__(self, out, pc, f1):
         super(FC2_P, self).__init__()
         self.convp = nn.Conv1d(in_channels=inst_length, out_channels=pc, kernel_size=2)
         self.f1_input = pc * (context_length - 1)

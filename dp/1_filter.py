@@ -15,7 +15,7 @@ if len(args.fname) <= 1:
 lines = SortedList()
 nlines = 0
 output = args.fname[0]
-output += "U"
+output += "u"
 
 def dump():
     global lines, nlines, output

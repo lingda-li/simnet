@@ -61,8 +61,7 @@ lat_y2 = np.copy(x[:,3:4])
 lat_y = np.concatenate((lat_y, lat_y2), axis=1)
 print(lat_y)
 x[:,0:4] = 0
-print(x.shape)
-print(y.shape)
+print("shape:", x.shape, y.shape)
 
 x_test = torch.from_numpy(x.astype('f'))
 
@@ -73,7 +72,7 @@ else:
   simnet = torch.load('models/' + class_model_name, map_location='cpu')
 output_all = simnet(x_test)
 simnet.eval()
-print(output_all)
+print("class output:", output_all)
 
 if use_cuda:
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -83,7 +82,7 @@ else:
 lat_output_all = lat_simnet(x_test)
 lat_simnet.eval()
 lat_output_all = lat_output_all.detach().numpy()
-print(lat_output_all)
+print("latency output:", lat_output_all)
 
 for i in range(2):
   y_test = torch.from_numpy(y.astype(int))
@@ -94,21 +93,21 @@ for i in range(2):
   target = np.squeeze(y[:,i:i+1])
   lat_output = np.squeeze(lat_output_all[:,i:i+1])
   lat_target = np.squeeze(lat_y[:,i:i+1])
-  print(output)
-  print(target)
-  print(lat_output)
-  print(lat_target)
+  print("class output:", output)
+  print("class target:", target)
+  print("latency output:", lat_output)
+  print("latency target:", lat_target)
 
   lat_output *= np.sqrt(fs['all_var'][2*i+1])
   lat_target *= np.sqrt(fs['all_var'][2*i+1])
   lat_output = np.rint(lat_output)
   lat_target = np.rint(lat_target)
-  print(lat_output)
-  print(lat_target)
-  print(lat_output.shape)
+  print("norm latency output:", lat_output)
+  print("norm latency target:", lat_target)
+  print("latency output shape:", lat_output.shape)
 
   lat_output = np.where(output < 9, output + 6*i, lat_output)
-  print(lat_output)
+  print("combined output:", lat_output)
 
   errs = lat_target - lat_output
   print(errs)
@@ -131,7 +130,7 @@ for i in range(2):
         errs[i] = -1
     print(errs)
 
-  print(np.average(errs[errs != -1]))
+  print("cycle err: ", np.average(errs[errs != -1]))
 
   his = np.histogram(errs, bins=range(-1, 100))
   print(errs[errs != -1].size / errs.size)

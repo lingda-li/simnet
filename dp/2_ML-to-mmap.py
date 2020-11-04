@@ -23,7 +23,7 @@ r = args.total_rows
 w = context_length*inst_length
 shp = (r, w)
 
-print("Make ML dataset ", output, ", start from", start, ", end with", end, ", shape is ", shp)
+print("Make ML dataset ", output, ", start from", start, ", end with", end, ", shape is ", shp, flush=True)
 
 nlines = 0
 nfilled = 0

@@ -47,7 +47,7 @@ y_test = y[batchnum*batchsize:int((batchnum+0.5)*batchsize),]
 print("Train with ", batchnum*batchsize, ", test with", 0.5*batchsize)
 
 loss = nn.MSELoss()
-simnet = CNN3(2, 5, 64, 5, 64, 5, 256, 400)
+simnet = CNN3_P2(2, 64, 5, 64, 5, 64, 5, 256, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)

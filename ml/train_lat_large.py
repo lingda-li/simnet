@@ -21,6 +21,7 @@ total_size = 342959816
 print_threshold = 16
 out_fetch = False
 out_comp = False
+testbatchnum = 5200
 
 def get_lat(arr, low, high):
     x = np.copy(arr[low:high,])
@@ -28,6 +29,8 @@ def get_lat(arr, low, high):
     y2 = np.copy(x[:,3:4])
     y = np.concatenate((y1, y2), axis=1)
     x[:,0:4] = 0
+    #for i in range(1, context_length):
+    #  x[:,inst_length*i+2] = 0
     x = torch.from_numpy(x.astype('f'))
     y = torch.from_numpy(y.astype('f'))
     return x, y
@@ -40,12 +43,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(torch.cuda.device_count(), " GPUs, ", device)
 print("Train with ", batchnum*batchsize, ", test with", int(0.5*batchsize))
 
-x_test, y_test = get_lat(f, batchnum*batchsize, int((batchnum+0.5)*batchsize))
+#x_test, y_test = get_lat(f, batchnum*batchsize, int((batchnum+0.5)*batchsize))
+x_test, y_test = get_lat(f, testbatchnum*batchsize, int((testbatchnum+0.5)*batchsize))
 x_test_g = x_test.to(device)
 y_test_g = y_test.to(device)
 
 loss = nn.MSELoss()
-simnet = CNN3_P(2, 64, 5, 64, 5, 64, 5, 256, 400)
+#simnet = CNN3(2, 5, 64, 5, 64, 5, 256, 400)
+simnet = CNN3_F_P(2, 64, 2, 64, 2, 1, 2, 128, 2, 1, 2, 256, 2, 0, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
