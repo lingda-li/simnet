@@ -635,12 +635,12 @@ int main(int argc, char *argv[])
         stop_flag=false;
       }
     }
-    // #ifdef DEBUG
+    #ifdef DEBUG
     for(int i=0 ; i< Total_Trace;i++)
     {
       cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<"curTick: " << curTick[i] << "Rob status: "<< rob[i].is_empty()<< endl;
     }
-    // #endif
+    #endif
     // cout<<"Stop flag: "<<stop_flag<<endl;
     // #ifdef DEBUG
     // cout<<"Stop flag:"<<stop_flag<<endl<<endl;
