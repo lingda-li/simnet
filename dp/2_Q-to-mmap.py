@@ -7,7 +7,6 @@ from q_format import *
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)
 parser.add_argument('--end', type=int, default=0)
-# 
 parser.add_argument('--total-rows', type=int, default=0)
 parser.add_argument('--cols', type=int, default=context_length*inst_length)
 parser.add_argument('--stats', default="")
@@ -44,6 +43,9 @@ for i in range(len(args.fname)):
     print("read", fname, flush=True)
     with open(fname) as f:
         for line in f:
+            if nfilled >= r:
+                print("Find more lines than the input shape.")
+                break
             if nlines < start:
                 nlines += 1
                 continue
