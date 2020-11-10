@@ -1,11 +1,7 @@
-#include <iostream>
-#include <fstream>
-#include <cstring>
-#include <cassert>
-#include <string>
+#ifndef __INST_IMPL_Q_H__
+#define __INST_IMPL_Q_H__
 
-#include "inst.h"
-#include "queue.h"
+#include <iostream>
 
 using namespace std;
 
@@ -14,62 +10,10 @@ using namespace std;
 #define TICK_STEP 500
 #define MINCOMPLETELAT 6
 #define MINSTORELAT 10
+#define MINOUTLAT MINCOMPLETELAT
 
 Addr getLine(Addr in) { return in & ~0x3f; }
 int getReg(int C, int I) { return C * MAXREGIDX + I + 1; }
-
-int main(int argc, char *argv[]) {
-  if (argc != 3) {
-    cerr << "Usage: ./buildML <trace> <SQ trace>" << endl;
-    return 0;
-  }
-  ifstream trace(argv[1]);
-  if (!trace.is_open()) {
-    cerr << "Cannot open trace file.\n";
-    return 0;
-  }
-  ifstream sqtrace(argv[2]);
-  if (!sqtrace.is_open()) {
-    cerr << "Cannot open SQ trace file.\n";
-    return 0;
-  }
-
-  string outputName = argv[1];
-  outputName.replace(outputName.end()-3, outputName.end(), "ML");
-  cerr << "Write to " << outputName << ".\n";
-  ofstream output(outputName);
-  if (!output.is_open()) {
-    cerr << "Cannot open output file.\n";
-    return 0;
-  }
-
-  // Current context.
-  struct QUEUE *q = new QUEUE;
-  Tick curTick;
-  bool firstInst = true;
-  Tick num = 0;
-  while (!trace.eof()) {
-    Inst *newInst = q->add();
-    if (!newInst->read(trace, sqtrace))
-      break;
-    if (firstInst) {
-      firstInst = false;
-      curTick = newInst->inTick;
-    }
-    q->retire_until(curTick);
-    q->dump(curTick, output);
-    curTick = newInst->inTick;
-    num++;
-    if (num % 100000 == 0)
-      cerr << ".";
-  }
-
-  cerr << "Finish at " << curTick << ".\n";
-  trace.close();
-  sqtrace.close();
-  output.close();
-  return 0;
-}
 
 bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   ROBtrace >> dec >> sqIdx >> inTick >> completeTick >> outTick;
@@ -85,7 +29,7 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   int completeTick2, outTick2;
   if (sqIdx != -1) {
     SQtrace >> dec >> sqIdx2 >> inTick2 >> completeTick2 >> outTick2 >>
-        storeTick;
+        storeTick >> sqOutTick;
     if (SQtrace.eof())
       return false;
     trace = &SQtrace;
@@ -110,15 +54,21 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
          (isNonSpeculative == 0 || isNonSpeculative == 1));
   assert(!inSQ() || (sqIdx2 == sqIdx && inTick2 == inTick &&
                      completeTick2 == completeTick && outTick2 == outTick));
+  assert(outTick >= completeTick);
   inTick /= TICK_STEP;
   completeTick /= TICK_STEP;
   outTick /= TICK_STEP;
   assert(completeTick >= MINCOMPLETELAT);
   if (sqIdx != -1) {
+    assert(sqOutTick >= storeTick);
+    assert(!inSQ() || storeTick >= outTick);
     storeTick /= TICK_STEP;
+    sqOutTick /= TICK_STEP;
     assert(storeTick >= MINSTORELAT);
-  } else
+  } else {
     storeTick = 0;
+    sqOutTick = 0;
+  }
 #ifdef COMBINE_OP
   combineOp();
 #endif
@@ -249,29 +199,26 @@ void Inst::combineOp() {
 void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
                 Addr PC, Addr *iwa, Addr *dwa, ostream &out) {
   assert(first || (iwa && dwa));
-  Tick fetchLat;
+  Tick fetchLat, outLat;
   if (first)
     fetchLat = inTick - tick;
   else
     fetchLat = tick - inTick;
-  int fetchC, completeC, storeC;
+  if (inSQ())
+    outLat = sqOutTick;
+  else
+    outLat = outTick;
+  int fetchC, outC;
   if (fetchLat <= 8)
     fetchC = fetchLat;
   else
     fetchC = 9;
-  if (completeTick <= MINCOMPLETELAT + 8)
-    completeC = completeTick - MINCOMPLETELAT;
+  if (outLat <= MINOUTLAT + 8)
+    outC = outLat - MINOUTLAT;
   else
-    completeC = 9;
-  if (storeTick == 0)
-    storeC = 0;
-  else if (storeTick <= MINSTORELAT + 7)
-    storeC = storeTick - MINSTORELAT + 1;
-  else
-    storeC = 9;
+    outC = 9;
   out << fetchC << " " << fetchLat << " ";
-  out << completeC << " " << completeTick << " ";
-  out << storeC << " " << storeTick << " ";
+  out << outC << " " << outLat << " ";
 
 #ifdef COMBINE_OP
   out << op + 15 << " " << isMicroOp << " " << isMisPredict << " ";
@@ -342,3 +289,19 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
   for (int i = 0; i < 3; i++)
     out << dWritebacks[i] << " ";
 }
+
+void Inst::dumpSim(ostream &out) {
+  out << pc << " ";
+  out << isAddr << " ";
+  out << addr << " ";
+  out << addrEnd << " ";
+  // Instruction walk addrs.
+  for (int i = 0; i < 3; i++)
+    out << iwalkAddr[i] << " ";
+  // Data walk addrs.
+  for (int i = 0; i < 3; i++)
+    out << dwalkAddr[i] << " ";
+  out << "\n";
+}
+
+#endif

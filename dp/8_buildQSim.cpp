@@ -2,17 +2,16 @@
 #include <fstream>
 #include <cstring>
 #include <cassert>
-#include <string>
+#include <cmath>
 
 #include "inst.h"
-#include "queue.h"
 #include "inst_impl_q.h"
 
 using namespace std;
 
 int main(int argc, char *argv[]) {
-  if (argc != 3) {
-    cerr << "Usage: ./buildQ <trace> <SQ trace>" << endl;
+  if (argc != 5) {
+    cerr << "Usage: ./buildQSim <trace> <SQ trace> <output name> <# insts>" << endl;
     return 0;
   }
   ifstream trace(argv[1]);
@@ -26,39 +25,40 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  string outputName = argv[1];
+  string outputName = argv[3];
   outputName.replace(outputName.end()-3, outputName.end(), "q");
-  cerr << "Write to " << outputName << ".\n";
-  ofstream output(outputName);
-  if (!output.is_open()) {
+  ofstream output(outputName + ".tr");
+  ofstream aux_output(outputName + ".tra");
+  if (!output.is_open() || !aux_output.is_open()) {
     cerr << "Cannot open output file.\n";
     return 0;
   }
 
-  // Current context.
-  struct QUEUE *q = new QUEUE;
+  unsigned long long total_num = atol(argv[4]);
+
+  Tick num = 0;
+  Inst newInst;
   Tick curTick;
   bool firstInst = true;
-  Tick num = 0;
-  while (!trace.eof()) {
-    Inst *newInst = q->add();
-    if (!newInst->read(trace, sqtrace))
+  while (!trace.eof() && num < total_num) {
+    if (!newInst.read(trace, sqtrace))
       break;
     if (firstInst) {
       firstInst = false;
-      curTick = newInst->inTick;
+      curTick = newInst.inTick;
     }
-    q->retire_until(curTick);
-    q->dump(curTick, output);
-    curTick = newInst->inTick;
+    newInst.dump(curTick, true, 0, 0, 0, 0, 0, 0, output);
+    newInst.dumpSim(aux_output);
+    curTick = newInst.inTick;
     num++;
     if (num % 100000 == 0)
       cerr << ".";
   }
 
-  cerr << "Finish at " << curTick << " with " << num << " instructions.\n";
+  cerr << "Finish with " << num << " instructions.\n";
   trace.close();
   sqtrace.close();
   output.close();
+  aux_output.close();
   return 0;
 }

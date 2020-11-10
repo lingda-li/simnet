@@ -91,7 +91,7 @@ struct Inst {
             Addr *iwa, Addr *dwa, ostream &out = cout);
 
   // Dump instruction for simulator input.
-  void dumpSim();
+  void dumpSim(ostream &out = cout);
 };
 
 #endif
