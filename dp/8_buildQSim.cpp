@@ -1,8 +1,8 @@
-#include <iostream>
-#include <fstream>
-#include <cstring>
 #include <cassert>
 #include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iostream>
 
 #include "inst.h"
 #include "inst_impl_q.h"
@@ -11,7 +11,8 @@ using namespace std;
 
 int main(int argc, char *argv[]) {
   if (argc != 5) {
-    cerr << "Usage: ./buildQSim <trace> <SQ trace> <output name> <# insts>" << endl;
+    cerr << "Usage: ./buildQSim <trace> <SQ trace> <output name> <# insts>"
+         << endl;
     return 0;
   }
   ifstream trace(argv[1]);
@@ -26,7 +27,6 @@ int main(int argc, char *argv[]) {
   }
 
   string outputName = argv[3];
-  outputName.replace(outputName.end()-3, outputName.end(), "q");
   ofstream output(outputName + ".tr");
   ofstream aux_output(outputName + ".tra");
   if (!output.is_open() || !aux_output.is_open()) {
@@ -48,6 +48,7 @@ int main(int argc, char *argv[]) {
       curTick = newInst.inTick;
     }
     newInst.dump(curTick, true, 0, 0, 0, 0, 0, 0, output);
+    output << endl;
     newInst.dumpSim(aux_output);
     curTick = newInst.inTick;
     num++;
