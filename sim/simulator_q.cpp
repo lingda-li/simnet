@@ -69,8 +69,10 @@ struct Inst {
       return false;
     }
     assert(trueCompleteTick >= MIN_COMP_LAT);
-    for (int i = 4; i < TD_SIZE; i++)
-      trace >> train_data[i] / factor[i];
+    for (int i = 4; i < TD_SIZE; i++) {
+      trace >> train_data[i];
+      train_data[i] /= factor[i];
+    }
     train_data[0] = train_data[1] = 0.0;
     train_data[2] = train_data[3] = 0.0;
     aux_trace >> isAddr >> addr >> addrEnd;
@@ -91,7 +93,7 @@ struct ROB {
   Inst insts[ROBSIZE + 1];
   int head = 0;
   int tail = 0;
-  bool saturated;
+  bool saturated = false;
   int inc(int input) {
     if (input == ROBSIZE)
       return 0;
@@ -199,11 +201,11 @@ float *read_numbers(char *fname, int sz) {
 
 int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
-  if (argc != 6) {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <class module> <variances>" << endl;
+  if (argc != 7) {
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <class module> <variances> <# inst>" << endl;
 #else
-  if (argc != 5) {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances>" << endl;
+  if (argc != 6) {
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <# inst>" << endl;
 #endif
     return 0;
   }
@@ -229,6 +231,7 @@ int main(int argc, char *argv[]) {
     cerr << "error loading the model\n";
     return 0;
   }
+  int arg_idx = 4;
 #ifdef CLASSIFY
   torch::jit::script::Module cla_module;
   try {
@@ -242,14 +245,11 @@ int main(int argc, char *argv[]) {
     cerr << "error loading the model\n";
     return 0;
   }
+  arg_idx++;
 #endif
 
-  float *varPtr = NULL;
-#ifdef CLASSIFY
-  varPtr = read_numbers(argv[5], TD_SIZE);
-#else
-  varPtr = read_numbers(argv[4], TD_SIZE);
-#endif
+  float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
+  unsigned long long total_num = atol(argv[arg_idx++]);
 
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
@@ -264,6 +264,7 @@ int main(int argc, char *argv[]) {
   float *inputPtr = input.data_ptr<float>();
 
   unsigned long long inst_num = 0;
+  unsigned long long fetched_inst_num = 0;
   double measured_time = 0.0;
   Tick curTick = 0;
   Tick lastFetchTick = 0;
@@ -302,6 +303,7 @@ int main(int argc, char *argv[]) {
         break;
       }
       fetched++;
+      fetched_inst_num++;
       newInst->inTick = curTick;
 #ifdef RUN_TRUTH
       int int_finish_lat = newInst->trueCompleteTick;
@@ -378,6 +380,10 @@ int main(int argc, char *argv[]) {
       newInst->tickNum = int_finish_lat;
       newInst->completeTick = curTick + int_finish_lat + int_fetch_lat;
       lastFetchTick = curTick;
+      if (total_num && fetched_inst_num == total_num) {
+        eof = true;
+        break;
+      }
       if (int_fetch_lat) {
         nextFetchTick = curTick + int_fetch_lat;
         break;
