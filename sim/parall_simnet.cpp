@@ -38,7 +38,6 @@ using namespace std;
 #define DPAGEC_BIT 22
 typedef long unsigned Tick;
 typedef long unsigned Addr;
-
 Tick Num = 0;
 
 float factor[TD_SIZE] = {
@@ -348,10 +347,10 @@ int main(int argc, char *argv[])
   int Batch_size = Total_instr / Total_Trace;
 
   int nGPU = atoi(argv[5]);
-  if(torch::cuda::device_count()<nGPU){cerr<<"GPUs not enough"<<endl;return 0;}
+  if((int)torch::cuda::device_count()<nGPU){cerr<<"GPUs not enough"<<endl;return 0;}
   torch::jit::script::Module lat_module[nGPU];
-  at::Tensor input[nGPU]; 
-  // cout<<dev<<endl;
+  at::Tensor *input= new at::Tensor[nGPU]; 
+  cout<<"Parameters loaded..."<<endl;
   try
   {
     // Deserialize the ScriptModule from a file using torch::jit::load().
@@ -374,24 +373,30 @@ int main(int argc, char *argv[])
     cerr << "error loading the model\n";
     return 0;
   }
-
+//cout<<"Model loaded..."<<endl;
 //omp_set_num_threads(16);
-  ifstream trace[Total_Trace];
-  ifstream aux_trace[Total_Trace];
-  Tick curTick[Total_Trace];
-  Tick nextFetchTick[Total_Trace];
-  Tick lastFetchTick[Total_Trace];
-  int index[Total_Trace];
-  unsigned long long inst_num_all[Total_Trace];
-  int fetched[Total_Trace];
-  int ROB_flag[Total_Trace];
-  int int_fetch_latency[Total_Trace];
-  int int_finish_latency[Total_Trace];
-  bool eof[Total_Trace];
+
+  ifstream* trace= new ifstream[Total_Trace];
+  ifstream* aux_trace= new ifstream[Total_Trace];
+  //ifstream trace[Total_Trace];
+  //ifstream aux_trace[Total_Trace];
+  //cout<<"File loaded.."<<endl;
+  Tick* curTick= new Tick[Total_Trace];
+  Tick* nextFetchTick= new Tick[Total_Trace]; 
+  Tick* lastFetchTick= new Tick[Total_Trace];
+  //cout<<"Ticks loaded..."<<endl;
+  int* index = new int[Total_Trace];
+  int*  inst_num_all= new int[Total_Trace];
+  int* fetched= new int[Total_Trace];
+  int* ROB_flag= new int[Total_Trace];
+  int* int_fetch_latency= new int[Total_Trace];
+  int* int_finish_latency= new int[Total_Trace];
+  bool* eof= new bool[Total_Trace];
 #ifdef PREFETCH
   char Trace_Buffer[Total_Trace][20000];
   char AuxTrace_Buffer[Total_Trace][20000];
 #endif
+  //cout<<"Memory allocated..."<<endl;
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
@@ -434,12 +439,14 @@ int main(int argc, char *argv[])
   double measured_time = 0.0;
   struct timeval start, end, total_start, total_end, end_first, start_first;
   gettimeofday(&total_start, NULL);
+#ifdef DEBUG
   cout<<"Simulation starting....."<<endl;
+#endif
+    Inst **newInst;
+    newInst = new Inst *[Total_Trace];
   while (stop_flag != 1)
   {
-    int inference_count[nGPU];
-    Inst **newInst;
-    newInst = new Inst *[Total_Trace];    
+    int* inference_count= new int[nGPU]; 
     at::Tensor output[nGPU];
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
@@ -559,12 +566,12 @@ int main(int argc, char *argv[])
         dev = dev + id;
         const std::string device_string = dev;
         inputs.push_back(input[i].to(device_string));
-        //#ifdef NGPU_DEBUG
-         // #pragma omp critical
-         // {
-           // cout<< " GPU_ID: "<< i<< " Input dim: "<<input[i].sizes()<<" JIT shape: "<<inputs.size()<<endl;
-         // }
-         // #endif
+        #ifdef NGPU_DEBUG
+          #pragma omp critical
+          {
+            cout<< " GPU_ID: "<< i<< " Input dim: "<<input[i].sizes()<<" JIT shape: "<<inputs.size()<<endl;
+          }
+        #endif
         #ifdef ROB_ANALYSIS
 	#else
 	  //std::clock_t c_start = std::clock();
@@ -591,16 +598,21 @@ int main(int argc, char *argv[])
       if(!eof[i]){
       int GPU_ID = (i)%nGPU;
       int offset = i / nGPU;
+      //if(offset>(Total_Trace/nGPU)){cout<<"Out of index"<<endl;}
+            //#pragma omp critical    
+      //#pragma omp critical
+      //{
+      //cout<<"Trace: "<<i<<endl;
       float fetch_lat = output[GPU_ID][offset][0].item<float>() * factor[1] + mean[1];
       float finish_lat = output[GPU_ID][offset][1].item<float>() * factor[3] + mean[3];
-      //fetch_lat =  2.5665* factor[1] + mean[1];
-      //finish_lat =  3.3545* factor[3] + mean[3];
+      //float fetch_lat =  2.5665* factor[1] + mean[1];
+      //float finish_lat =  3.3545* factor[3] + mean[3];
       #ifdef NGPU_DEBUG
       #pragma omp critical
           {
-          cout<<"Trace: "<<i<<" fetch: "<<fetch_lat<<" finish: "<<finish_lat<<endl;
+          cout<<"Trace: "<<i<<"GPU_ID: "<<GPU_ID<<" offset" <<offset<<" fetch: "<<fetch_lat<<" finish: "<<finish_lat<<endl;
           }
-      #endif
+      #endif 
       int int_fetch_lat = round(fetch_lat);
       int int_finish_lat = round(finish_lat);
       if (int_fetch_lat < 0)
@@ -611,6 +623,8 @@ int main(int argc, char *argv[])
       int_finish_lat = newInst[i]->trueCompleteTick;
             int_fetch_lat = newInst[i]->trueFetchTick;
 #endif
+
+	   //cout<<"int computed"<<" Count: "<<count<<endl; 
       // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
       #ifdef DEBUG
       #endif
@@ -637,6 +651,8 @@ int main(int argc, char *argv[])
         cout<<"continue"<<endl;
         #endif
       }
+      //cout<<"Trace: "<<i<<" update completed"<<endl;
+      	  
       }
     }
     //cout<<"Result updated"<<endl;
@@ -709,7 +725,7 @@ int main(int argc, char *argv[])
   
   int inst_num = 0;
   Tick curTick_final = 0;
-
+  cout << "Time: " << total_time << "\n";
   for (i = 0; i < Total_Trace; i++) 
   {
     // cout<<"Inst: "<<inst_num_all[i] <<". Tick: "<<curTick[i]<<endl;
@@ -721,7 +737,7 @@ int main(int argc, char *argv[])
 
   //cout<<"Count: "<<count<<endl;
   cout << inst_num << " instructions finish by " << (curTick_final ) << "\n";
-  cout << "Time: " << total_time << "\n";
+  //cout << "Time: " << total_time << "\n";
   //cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num << "\n";
   //cout << "Measured Time: " << measured_time / inst_num << "\n";
