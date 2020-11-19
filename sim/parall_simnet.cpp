@@ -299,7 +299,7 @@ int main(int argc, char *argv[])
   // cout << "main function called. Argc:  " <<argc<< endl;
   if (argc < 6)
   {
-    cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads>" << endl;
+    cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances>" << endl;
     return 0;
   }
   ifstream trace_test(argv[1]);
@@ -349,6 +349,9 @@ int main(int argc, char *argv[])
   int nGPU = atoi(argv[5]);
   if((int)torch::cuda::device_count()<nGPU){cerr<<"GPUs not enough"<<endl;return 0;}
   torch::jit::script::Module lat_module[nGPU];
+#ifdef CLASSIFY
+  torch::jit::script::Module cla_module[nGPU];
+#endif
   at::Tensor *input= new at::Tensor[nGPU]; 
   //cout<<"Parameters loaded..."<<endl;
   try
@@ -365,6 +368,9 @@ int main(int argc, char *argv[])
       dev = dev + id;
       const std::string device_string = dev;
       lat_module[i].to(device_string);
+#ifdef CLASSIFY
+      cla_module[i]= torch::jit::load(argv[3]);
+#endif
     }
     #endif
   }
@@ -374,8 +380,9 @@ int main(int argc, char *argv[])
     return 0;
   }
 //cout<<"Model loaded..."<<endl;
- omp_set_num_threads(atoi(argv[6]));
-
+ //cout<<"Max threads: "<<omp_get_max_threads()<<endl;
+  omp_set_num_threads(atoi(argv[6]));
+//cout<<"Max threads: "<<omp_get_max_threads()<<endl;
   ifstream* trace= new ifstream[Total_Trace];
   ifstream* aux_trace= new ifstream[Total_Trace];
   //ifstream trace[Total_Trace];
@@ -428,6 +435,7 @@ int main(int argc, char *argv[])
     }
   }
 
+  // float *inputPtr = input.data_ptr<float>();
   int i, count = 0, stop_flag=0;
   // cout<<"Batch size: "<< Batch_size <<endl;
   struct ROB *rob = new ROB[Total_Trace];
@@ -437,6 +445,8 @@ int main(int argc, char *argv[])
   Tick Case3 = 0;
   double measured_time = 0.0;
   struct timeval start, end, total_start, total_end, end_first, start_first;
+  struct timeval loop1_start,loop2_start,loop3_start,loop4_start,loop5_start,loop1_end,loop2_end,loop3_end,loop4_end,loop5_end;
+  double loop1_time=0,loop2_time=0,loop3_time=0,loop4_time=0,loop5_time=0;
   gettimeofday(&total_start, NULL);
 #ifdef DEBUG
   cout<<"Simulation starting....."<<endl;
@@ -447,9 +457,11 @@ int main(int argc, char *argv[])
   {
     int* inference_count= new int[nGPU]; 
     at::Tensor output[nGPU];
+gettimeofday(&start, NULL);
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     {
+	    //std::clock_t c_start = std::clock();
       //float *inputPtr = input.data_ptr<float>();
       // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
       if (!eof[i] || !rob[i].is_empty())
@@ -545,11 +557,13 @@ int main(int argc, char *argv[])
         cout << "Count:" << count << endl;
 #endif
       }
-      
     }
+   gettimeofday(&end, NULL);
+     loop1_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0; 
+   i=0;
+   gettimeofday(&start, NULL);
   // Parallel inference
     /************************************************************************************************/
-    
 #pragma omp parallel for
     for(i=0;i<nGPU; i++){
         std::vector<torch::jit::IValue> inputs;
@@ -564,19 +578,38 @@ int main(int argc, char *argv[])
             cout<< " GPU_ID: "<< i<< " Input dim: "<<input[i].sizes()<<" JIT shape: "<<inputs.size()<<endl;
           }
         #endif
-        #ifdef ROB_ANALYSIS
-	#else
-	  output[i]= lat_module[i].forward(inputs).toTensor().to(at::kCPU);
-        #endif
-    }
-
+	  output[i]= lat_module[i].forward(inputs).toTensor();
+	  output[i]=output[i].to(at::kCPU);
+	  #ifdef CLASSIFY
+	  cla_output[i]= cla_module.forward(inputs).toTensor();
+	  #endif
+      	}
+    gettimeofday(&end, NULL);
     // Aggregate results
+     gettimeofday(&start, NULL);
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++)
     { 
-      if(!eof[i]){
-      int GPU_ID = (i)%nGPU;
+	if(!eof[i]){
+	 int GPU_ID = (i)%nGPU;
       int offset = i / nGPU;
+	    #ifdef CLASSIFY
+      int f_class, c_class;
+      for (int i = 0; i < 2; i++) {
+        float max = cla_output[nGPU][offset][10*i].item<float>();
+        int idx = 0;
+        for (int j = 1; j < 10; j++) {
+          if (max < cla_output[nGPU][offset][10*i+j].item<float>()) {
+            max = cla_output[nGPU][offset][10*i+j].item<float>();
+            idx = j;
+          }
+        }
+        if (i == 0)
+          f_class = idx;
+        else
+          c_class = idx;
+      }
+	#endif
       float fetch_lat, finish_lat;
       float *output_arr= output[GPU_ID].data_ptr<float>();
       fetch_lat= output_arr[2*offset+0] * factor[1] + mean[1];
@@ -593,13 +626,18 @@ int main(int argc, char *argv[])
         int_fetch_lat = 0;            
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
+
+#ifdef CLASSIFY	
+      if(f_class <= 8)
+	 int_fetch_lat= f_class;
+      if(c_class <= 8)
+	 int_finish_lat= c_class + MIN_COMP_LAT;
+#endif
 #ifdef ROB_ANALYSIS
       int_finish_lat = newInst[i]->trueCompleteTick;
-            int_fetch_lat = newInst[i]->trueFetchTick;
+      int_fetch_lat = newInst[i]->trueFetchTick;
 #endif
 
-	   //cout<<"int computed"<<" Count: "<<count<<endl; 
-      // cout <<"Trace: "<<i<< "curtick: " <<curTick[i] << ", fetch latency: " << int_fetch_lat << ", finish latency: " << int_finish_lat << endl;
       #ifdef DEBUG
       #endif
       newInst[i]->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
@@ -629,8 +667,12 @@ int main(int argc, char *argv[])
       	  
       }
     }
+    //return 0;
+     gettimeofday(&end, NULL);
+     loop3_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
     //cout<<"Result updated"<<endl;
       /************************************************************************************************/
+    gettimeofday(&start,NULL);
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++){
       if (!rob[i].is_empty()) // this results in 2075
@@ -673,7 +715,12 @@ int main(int argc, char *argv[])
     }
   }
 
+
+   gettimeofday(&end, NULL);
+   loop4_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
+    // stop_flag -= 1;
     stop_flag = true;
+    gettimeofday(&start, NULL);
     for(int i=0 ; i< Total_Trace;i++)
     {
       // cout<< "eof[ " << i << "]= " << eof[i]<<endl;
@@ -684,6 +731,8 @@ int main(int argc, char *argv[])
 	break;
       }
     }
+    gettimeofday(&end, NULL);
+    loop5_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
     #ifdef DEBUG
     for(int i=0 ; i< Total_Trace;i++)
     {
@@ -711,11 +760,13 @@ int main(int argc, char *argv[])
   }
 
   //cout<<"Count: "<<count<<endl;
-  cout << inst_num << " instructions finish by " << (curTick_final ) << "\n";
+  cout << inst_num << " instructions finish by " << (curTick_final-1 ) << "\n";
+  cout << "Time: " << total_time << "\n";
  // cout << "Total: " << total_time<<", Inference:"<<loop2_time<<"sec, ROB:"<<(total_time-measured_time);
   //cout << "Total: " << total_time<<",L1:"<<loop1_time<<",L2:"<<loop2_time<<",L3:"<<loop3_time<<",L4:"<<loop4_time<<",L5:"<<loop5_time;
-  //cout << total_time<<","<<loop1_time<<","<<loop2_time<<","<<loop3_time<<","<<loop4_time<<","<<loop5_time;
+  //cout << total_time* 1000000.0 / inst_num<<","<<loop1_time* 1000000.0 / inst_num<<","<<loop2_time* 1000000.0 / inst_num<<","<<loop3_time* 1000000.0 / inst_num<<","<<loop4_time* 1000000.0 / inst_num<<","<<loop5_time* 1000000.0 / inst_num;
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
+  cout << "USPI: " << total_time * 1000000.0 / inst_num<<endl; 
   //cout << "sec ,USPI: " << total_time * 1000000.0 / inst_num<< ",Inference per inst: " << measured_time * 1000000.0/inst_num << ",ROB per inst "<<(total_time-measured_time) * 1000000.0/inst_num;
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << "\n";
   cout << "Trace: " << argv[1] << "\n";
@@ -723,7 +774,7 @@ int main(int argc, char *argv[])
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
   cout << "Lat Model: " << argv[3] << "\n";
-  cout<<" ,Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << " ,Prediction: "<< curTick_final << endl;
+  cout<<"Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << " ,Prediction: "<< curTick_final << endl;
 //cout<<","<<atoi(argv[6])<<","<< Total_Trace <<","<< nGPU << ","<< curTick_final << endl;
 #endif
 #ifdef RUN_TRUTH
