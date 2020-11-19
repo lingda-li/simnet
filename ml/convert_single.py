@@ -9,8 +9,10 @@ from models import *
 #inst_length = 10
 #context_length = 93
 #inst_length = 17
-context_length = 94
-inst_length = 39
+#context_length = 94
+#inst_length = 39
+context_length = 111
+inst_length = 51
 
 loaded_model_name = sys.argv[1]
 

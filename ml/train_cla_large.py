@@ -1,5 +1,6 @@
 import sys
 import os
+import math
 import time
 import numpy as np
 import torch
@@ -17,10 +18,16 @@ saved_model_name = sys.argv[1]
 data_set_name = sys.argv[2]
 batchnum = int(sys.argv[3])
 batchsize = 32 * 1024 * 2
-total_size = 342959816
 print_threshold = 16
 out_fetch = False
 out_comp = False
+#total_size = 342959816
+#testbatchnum = 5200
+total_size = 330203367
+testbatchnum = 5008
+if 5000 % batchnum != 0:
+  print("Warning: not aligned batch number")
+stride = math.floor(5000 / batchnum)
 
 def get_cla(arr, s, low, high):
     x = np.copy(arr[low:high,])
@@ -44,12 +51,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(torch.cuda.device_count(), " GPUs, ", device)
 print("Train with ", batchnum*batchsize, ", test with", int(0.5*batchsize))
 
-x_test, y_test = get_cla(f, fs, batchnum*batchsize, int((batchnum+0.5)*batchsize))
+x_test, y_test = get_cla(f, fs, testbatchnum*batchsize, int((testbatchnum+0.5)*batchsize))
 x_test_g = x_test.to(device)
 y_test_g = y_test.to(device)
 
 loss = nn.CrossEntropyLoss()
-simnet = CNN3_F_P(20, 64, 2, 64, 2, 1, 2, 128, 2, 1, 2, 256, 2, 0, 400)
+simnet = CNN3_F(20, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
@@ -63,7 +70,8 @@ for i in range(epoch_num):
     for didx in range(batchnum):
         if didx % print_threshold == 0:
             print('.', flush=True, end='')
-        x, y = get_cla(f, fs, didx*batchsize, (didx+1)*batchsize)
+        #x, y = get_cla(f, fs, didx*batchsize, (didx+1)*batchsize)
+        x, y = get_cla(f, fs, didx*stride*batchsize, (didx*stride+1)*batchsize)
         x = x.to(device)
         y = y.to(device)
 

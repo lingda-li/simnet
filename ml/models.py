@@ -3,10 +3,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-context_length = 94
+#context_length = 94
 #inst_length = 33
-inst_length = 39
+#inst_length = 39
 #inst_length = 43
+context_length = 111
+inst_length = 51
 
 class FC2(nn.Module):
     def __init__(self, out, f1):
