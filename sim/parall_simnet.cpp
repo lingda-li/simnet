@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
     return 0;
   }
   #endif
-
+cout<< "Arguments provided: "<<argc<<endl;
   ifstream trace_test(argv[1]);
   if (!trace_test.is_open())
   {
@@ -280,11 +280,14 @@ int main(int argc, char *argv[])
 
 float *varPtr = NULL;
 #ifdef CLASSIFY
-  if (argc > 8)
-    varPtr = read_numbers(argv[7], TD_SIZE);
+  if (argc > 9)
+    varPtr = read_numbers(argv[9], TD_SIZE);
 #else
-  if (argc > 7)
-    varPtr = read_numbers(argv[7], TD_SIZE);
+  if (argc > 8)
+  {
+	  cout<<"varPter provided."<<endl;
+    varPtr = read_numbers(argv[8], TD_SIZE);
+}
 #endif
   if (varPtr)
     cout << "Use input factors.\n";
@@ -308,6 +311,7 @@ float *varPtr = NULL;
   //cout<<"Ticks loaded..."<<endl;
   int* index = new int[Total_Trace];
   int*  inst_num_all= new int[Total_Trace];
+  int* fetched_inst_num= new int[Total_Trace];
   int* fetched= new int[Total_Trace];
   int* ROB_flag= new int[Total_Trace];
   int* int_fetch_latency= new int[Total_Trace];
@@ -325,6 +329,7 @@ float *varPtr = NULL;
     nextFetchTick[i] = 0;
     lastFetchTick[i] = 0;
     inst_num_all[i] = 0;
+    fetched_inst_num[i]=0;
     fetched[i] = 0;
     eof[i] = false;
     int offset = i * Batch_size;
@@ -436,7 +441,7 @@ gettimeofday(&start, NULL);
           int offset = i / nGPU;
           float *inputPtr = input[GPU_ID].data_ptr<float>();
           inputPtr= inputPtr + ML_SIZE * offset;
-	        rob[i].make_train_data(inputPtr, curTick[i]);
+	        rob[i].make_input_data(inputPtr, curTick[i]);
           #ifdef NGPU_DEBUG
           #pragma omp critical
           {
@@ -492,6 +497,7 @@ gettimeofday(&start, NULL);
 	  cla_output[i]= cla_module.forward(inputs).toTensor();
 	  #endif
       	}
+
     gettimeofday(&end, NULL);
     // Aggregate results
      gettimeofday(&start, NULL);
@@ -589,21 +595,21 @@ gettimeofday(&start, NULL);
 
       if (ROB_flag[i])
       {
-        if ((rob[i]->is_full() || rob[i]->saturated) && int_fetch_lat[i]) {
+        if ((rob[i].is_full() || rob[i].saturated) && int_fetch_latency[i]) {
         // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
-        curTick[i] = max(rob[i]->getHead()->completeTick, nextFetchTick[i]);
-        if (rob[i]->is_full())
+        curTick[i] = max(rob[i].getHead()->completeTick, nextFetchTick[i]);
+        if (rob[i].is_full())
           Case1++;
         else
           Case2++;
-      } else if (int_fetch_lat[i]) {
+      } else if (int_fetch_latency[i]) {
         // Fast forward curTick to fetch instructions.
         curTick[i] = nextFetchTick[i];
         Case0++;
-      } else if (rob[i]->is_full() || rob[i]->saturated) {
+      } else if (rob[i].is_full() || rob[i].saturated) {
         // Fast forward curTick to retire instructions.
-        curTick[i] = rob[i]->getHead()->completeTick;
-        if (rob[i]->is_full())
+        curTick[i] = rob[i].getHead()->completeTick;
+        if (rob[i].is_full())
           Case3++;
         else
           Case4++;
