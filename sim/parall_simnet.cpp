@@ -24,84 +24,34 @@ using namespace std;
 // #define HALF
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
-#define ROBSIZE 94
+#define TD_SIZE 51
+#define CONTEXTSIZE 111
+#define ROBSIZE 400
 #define TICK_STEP 500.0
 #define FETCH_BANDWIDTH 3
 #define RETIRE_BANDWIDTH 4
-#define TD_SIZE 39
-#define ML_SIZE (TD_SIZE * ROBSIZE)
+#define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 #define MIN_COMP_LAT 6
-#define ILINEC_BIT 8
-#define IPAGEC_BIT 13
-#define DADDRC_BIT 17
-#define DLINEC_BIT 18
-#define DPAGEC_BIT 22
+#define ILINEC_BIT 33
+#define IPAGEC_BIT 38
+#define DADDRC_BIT 42
+#define DLINEC_BIT 43
+#define DPAGEC_BIT 47
+
 typedef long unsigned Tick;
 typedef long unsigned Addr;
 Tick Num = 0;
 
-float factor[TD_SIZE] = {
-    4.312227940421713,
-    23.77553044744847,
-    4.555194111127984,
-    35.2434314352038,
-    15.265764787317297,
-    0.29948663397402053,
-    0.03179227967763891,
-    1.0,
-    0.3734605619940018,
-    20.161017665013475,
-    0.01824348838297176,
-    0.0182174151577969,
-    0.018094302417033036,
-    0.0034398387559557687,
-    1.0,
-    1.0,
-    0.38473787518201347,
-    0.04555131694662134,
-    0.09744266378500231,
-    0.12392501424650113,
-    0.12391492952272068,
-    0.1238875588320556,
-    0.06099769717651739,
-    1.0,
-    1.0,
-    24.855520819765943,
-    26.09130907621545,
-    24.95569646402784,
-    9.621855610687513,
-    5.900770232974813,
-    4.979413184960278,
-    4.993246078979618,
-    0.5821067191490825,
-    14.657204204150103,
-    22.100692970367547,
-    22.241366163707752,
-    20.590947782553783,
-    2.58817823205487,
-    0.13659586939272889};
-
+float factor[TD_SIZE];
 float mean[TD_SIZE];
 
 float default_val[TD_SIZE];
 
-struct Inst
-{
-  int op;
-  int isMicroOp;
-  int isCondCtrl;
-  int isUncondCtrl;
-  int isMemBar;
-  int srcNum;
-  int destNum;
-  int srcClass[MAXSRCREGNUM];
-  int srcIndex[MAXSRCREGNUM];
-  int destClass[MAXDSTREGNUM];
-  int destIndex[MAXDSTREGNUM];
+struct Inst {
+  float train_data[TD_SIZE];
   Tick inTick;
   Tick completeTick;
   Tick tickNum;
-  float train_data[TD_SIZE];
   Tick trueFetchTick;
   Tick trueCompleteTick;
   int trueFetchClass;
@@ -112,41 +62,20 @@ struct Inst
   Addr addrEnd;
   Addr iwalkAddr[3];
   Addr dwalkAddr[3];
-
-  // Read one instruction.
-  bool read(ifstream &trace)
-  {
-    //Num++;
-    //if (Num > 1000000)
-    //  return false;
-    Tick tmp;
-    trace >> op >> tmp >> tmp >> tmp;
-    if (trace.eof())
-      return false;
-    trace >> srcNum;
-    for (int i = 0; i < srcNum; i++)
-      trace >> srcClass[i] >> srcIndex[i];
-    trace >> destNum;
-    for (int i = 0; i < destNum; i++)
-      trace >> destClass[i] >> destIndex[i];
-    assert(!trace.eof());
-    return true;
-  }
-
-  bool read_train_data(ifstream &trace, ifstream &aux_trace)
-  { 
-    // cout <<"Current pointer: "<< trace.tellg()<<endl;
+  // Read simulation data.
+  bool read_sim_data(ifstream &trace, ifstream &aux_trace) {
     trace >> trueFetchClass >> trueFetchTick;
     trace >> trueCompleteClass >> trueCompleteTick;
     aux_trace >> pc;
-    if (trace.eof())
-    {
+    if (trace.eof()) {
       assert(aux_trace.eof());
       return false;
     }
     assert(trueCompleteTick >= MIN_COMP_LAT);
-    for (int i = 4; i < TD_SIZE; i++)
+    for (int i = 4; i < TD_SIZE; i++) {
       trace >> train_data[i];
+      train_data[i] /= factor[i];
+    }
     train_data[0] = train_data[1] = 0.0;
     train_data[2] = train_data[3] = 0.0;
     aux_trace >> isAddr >> addr >> addrEnd;
@@ -161,23 +90,13 @@ struct Inst
     //cout << "\n";
     return true;
   }
-
-  void dump(Tick tick)
-  {
-    cout << op << " " << tick - inTick << " " << tickNum << " ";
-    cout << srcNum << " ";
-    for (int i = 0; i < srcNum; i++)
-      cout << srcClass[i] << " " << srcIndex[i] << " ";
-    cout << destNum << " ";
-    for (int i = 0; i < destNum; i++)
-      cout << destClass[i] << " " << destIndex[i] << " ";
-  }
 };
 
 struct ROB {
   Inst insts[ROBSIZE + 1];
   int head = 0;
   int tail = 0;
+  bool saturated = false;
   int inc(int input) {
     if (input == ROBSIZE)
       return 0;
@@ -192,15 +111,12 @@ struct ROB {
   }
   bool is_empty() { return head == tail; }
   bool is_full() { return head == inc(tail); }
-  
   Inst *add() {
     assert(!is_full());
     int old_tail = tail;
     tail = inc(tail);
     return &insts[old_tail];
   }
-
-  
   Inst *getHead() {
     return &insts[head];
   }
@@ -210,70 +126,64 @@ struct ROB {
   }
   int retire_until(Tick tick) {
     int retired = 0;
-    while (!is_empty() && insts[head].completeTick <= tick &&
-           retired < RETIRE_BANDWIDTH) {
+    while (!is_empty() && insts[head].completeTick <= tick) {
       retire();
       retired++;
     }
     return retired;
   }
-  void dump(Tick tick) {
-    for (int i = dec(tail); i != dec(head); i = dec(i)) {
-      insts[i].dump(tick);
-    }
-    cout << "\n";
-  }
-  void make_train_data(float *context) {
-    int num = 0;
+
+  void make_input_data(float *context, Tick tick) {
+    assert(!is_empty());
+    saturated = false;
     Addr pc = insts[dec(tail)].pc;
     int isAddr = insts[dec(tail)].isAddr;
     Addr addr = insts[dec(tail)].addr;
     Addr addrEnd = insts[dec(tail)].addrEnd;
     Addr iwalkAddr[3], dwalkAddr[3];
-    // for (int i = num; i < ROBSIZE; i++) {
-    //   cout<<default_val[i]<<"\t";
-    // }
-    // cout<<endl;
     for (int i = 0; i < 3; i++) {
       iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
       dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
     }
-    for (int i = dec(tail); i != dec(head); i = dec(i)) {
-      if (i != dec(tail)) {
-        // Update context instruction bits.
-        insts[i].train_data[ILINEC_BIT] = insts[i].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
-        int conflict = 0;
+    std::copy(insts[dec(tail)].train_data, insts[dec(tail)].train_data + TD_SIZE, context);
+    int num = 1;
+    for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
+      if (insts[i].completeTick <= tick)
+        continue;
+      if (num >= CONTEXTSIZE) {
+        saturated = true;
+        break;
+      }
+      // Update context instruction bits.
+      insts[i].train_data[ILINEC_BIT] = insts[i].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
+      int conflict = 0;
+      for (int j = 0; j < 3; j++) {
+        if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
+          conflict++;
+      }
+      insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
+      insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
+      insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
+      conflict = 0;
+      if (isAddr && insts[i].isAddr)
         for (int j = 0; j < 3; j++) {
-          if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
+          if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
             conflict++;
         }
-
-        // cout<<"Ilinec"<< insts[i].train_data[ILINEC_BIT] << "conflict: "<<conflict << endl;
-        insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
-        insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
-        insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
-        conflict = 0;
-        // cout<<"Train Data: "<<insts[i].train_data[IPAGEC_BIT]<<" "<<insts[i].train_data[DADDRC_BIT]<<" "<<insts[i].train_data[DLINEC_BIT]<<endl;
-        if (isAddr && insts[i].isAddr)
-          for (int j = 0; j < 3; j++) {
-            if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
-              conflict++;
-          }
-        insts[i].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
-      }
+      insts[i].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
       std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
       num++;
     }
-    for (int i = num; i < ROBSIZE; i++) {
+    for (int i = num; i < CONTEXTSIZE; i++) {
       std::copy(default_val, default_val + TD_SIZE, context + i * TD_SIZE);
     }
-    // for (int i = num; i < ROBSIZE; i++) {
-    //   cout<<default_val[i]<<"\t";
-    // }
-    // cout<<endl;
   }
-  void update_fetch_cycle(Tick tick) {
+  
+  void update_fetch_cycle(Tick tick, Tick curTick) {
+    assert(!is_empty());
     for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
+      if (insts[i].completeTick <= curTick)
+        continue;
       insts[i].train_data[0] += tick / factor[0];
       if (insts[i].train_data[0] >= 9 / factor[0])
         insts[i].train_data[0] = 9 / factor[0];
@@ -284,12 +194,11 @@ struct ROB {
   }
 };
 
-float *read_numbers(char *fname, int sz)
-{
+float *read_numbers(char *fname, int sz) {
   float *ret = new float[sz];
   ifstream in(fname);
   printf("Trying to read from %s\n", fname);
-  for (int i = 0; i < sz; i++)
+  for(int i=0;i<sz;i++)
     in >> ret[i];
   return ret;
 }
@@ -297,11 +206,19 @@ float *read_numbers(char *fname, int sz)
 int main(int argc, char *argv[])
 {
   // cout << "main function called. Argc:  " <<argc<< endl;
-  if (argc < 6)
+
+#ifdef CLASSIFY
+  if (argc != 8) {
+    cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances> <class module>" << endl;
+#else
+
+  if (argc != 7)
   {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances>" << endl;
     return 0;
   }
+  #endif
+
   ifstream trace_test(argv[1]);
   if (!trace_test.is_open())
   {
@@ -315,26 +232,6 @@ int main(int argc, char *argv[])
     return 0;
   }
 
-  float *varPtr = NULL;
-#ifdef CLASSIFY
-  if (argc > 8)
-    varPtr = read_numbers(argv[7], TD_SIZE);
-#else
-  if (argc > 7)
-    varPtr = read_numbers(argv[7], TD_SIZE);
-#endif
-  if (varPtr)
-    cout << "Use input factors.\n";
-
-      for (int i = 0; i < TD_SIZE; i++) {
-#ifdef NO_MEAN
-    mean[i] = -0.0;
-#endif
-    if (varPtr)
-      factor[i] = sqrtf(varPtr[i]);
-    default_val[i] = -mean[i] / factor[i];
-    // cout << default_val[i] << " ";
-  }
 
   int Total_Trace = atoi(argv[4]);
   std::string line;
@@ -369,7 +266,8 @@ int main(int argc, char *argv[])
       const std::string device_string = dev;
       lat_module[i].to(device_string);
 #ifdef CLASSIFY
-      cla_module[i]= torch::jit::load(argv[3]);
+      cla_module[i]= torch::jit::load(argv[8]);
+      cla_module[i].to(device_string);
 #endif
     }
     #endif
@@ -379,15 +277,31 @@ int main(int argc, char *argv[])
     cerr << "error loading the model\n";
     return 0;
   }
-//cout<<"Model loaded..."<<endl;
- //cout<<"Max threads: "<<omp_get_max_threads()<<endl;
+
+float *varPtr = NULL;
+#ifdef CLASSIFY
+  if (argc > 8)
+    varPtr = read_numbers(argv[7], TD_SIZE);
+#else
+  if (argc > 7)
+    varPtr = read_numbers(argv[7], TD_SIZE);
+#endif
+  if (varPtr)
+    cout << "Use input factors.\n";
+
+      for (int i = 0; i < TD_SIZE; i++) {
+#ifdef NO_MEAN
+    mean[i] = -0.0;
+#endif
+    if (varPtr)
+      factor[i] = sqrtf(varPtr[i]);
+    default_val[i] = -mean[i] / factor[i];
+    // cout << default_val[i] << " ";
+  }
+
   omp_set_num_threads(atoi(argv[6]));
-//cout<<"Max threads: "<<omp_get_max_threads()<<endl;
   ifstream* trace= new ifstream[Total_Trace];
   ifstream* aux_trace= new ifstream[Total_Trace];
-  //ifstream trace[Total_Trace];
-  //ifstream aux_trace[Total_Trace];
-  //cout<<"File loaded.."<<endl;
   Tick* curTick= new Tick[Total_Trace];
   Tick* nextFetchTick= new Tick[Total_Trace]; 
   Tick* lastFetchTick= new Tick[Total_Trace];
@@ -443,6 +357,8 @@ int main(int argc, char *argv[])
   Tick Case1 = 0;
   Tick Case2 = 0;
   Tick Case3 = 0;
+  Tick Case4 = 0;
+  Tick Case5 = 0;
   double measured_time = 0.0;
   struct timeval start, end, total_start, total_end, end_first, start_first;
   struct timeval loop1_start,loop2_start,loop3_start,loop4_start,loop5_start,loop1_end,loop2_end,loop3_end,loop4_end,loop5_end;
@@ -492,7 +408,7 @@ gettimeofday(&start, NULL);
             #endif
           }
           newInst[i] = rob[i].add();
-          if (!newInst[i]->read_train_data(trace[i], aux_trace[i]))
+          if (!newInst[i]->read_sim_data(trace[i], aux_trace[i]))
           {
             eof[i]= true;
             #ifdef DEBUG
@@ -502,6 +418,7 @@ gettimeofday(&start, NULL);
           }
           
           fetched[i]++;
+          fetched_inst_num[i]++;
           if(fetched[i]>Batch_size){eof[i]= true;
           #ifdef DEBUG
           cout <<"Trace: "<<i<< " ,end of batch size from fetch." << endl;
@@ -509,26 +426,17 @@ gettimeofday(&start, NULL);
           }
           #pragma omp atomic
             count+=1;
-          #ifdef DEBUG
-          cout <<"T: "<<i<< "Fetched: " << fetched[i] << endl;
-          #endif
           newInst[i]->inTick = curTick[i];
-          #ifdef DEBUG
-          cout<<"T: "<<i<<"newInst->inTick: "<< newInst[i]->inTick<< endl;
-          #endif
           if (curTick[i] != lastFetchTick[i])
           {
-            #ifdef DEBUG 
-            cout <<"T: "<<i<< "Update fetch cycle: "<<(curTick[i] - lastFetchTick[i])<<endl;
-            #endif
-            rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i]);
+            rob[i].update_fetch_cycle(curTick[i] - lastFetchTick[i], curTick[i]);
           }
           // cout<<input<<endl;
           int GPU_ID = (i)%nGPU;
           int offset = i / nGPU;
           float *inputPtr = input[GPU_ID].data_ptr<float>();
           inputPtr= inputPtr + ML_SIZE * offset;
-	        rob[i].make_train_data(inputPtr);
+	        rob[i].make_train_data(inputPtr, curTick[i]);
           #ifdef NGPU_DEBUG
           #pragma omp critical
           {
@@ -655,6 +563,7 @@ gettimeofday(&start, NULL);
       #endif
       int_fetch_latency[i] = int_fetch_lat;
       int_finish_latency[i] = int_finish_lat;
+
       if (int_fetch_lat)
       {
         nextFetchTick[i] = curTick[i] + int_fetch_lat;
@@ -680,37 +589,29 @@ gettimeofday(&start, NULL);
 
       if (ROB_flag[i])
       {
-        if (rob[i].is_full() && int_fetch_latency[i])
-        {
-          // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
-          curTick[i] = max(rob[i].getHead()->completeTick, nextFetchTick[i]);
-        #pragma omp atomic 
-          Case0+=1;
-        }
-        else if (rob[i].is_full())
-        {
-          // Fast forward curTick to retire instructions.
-          curTick[i] = rob[i].getHead()->completeTick;
-        #pragma omp atomic
+        if ((rob[i]->is_full() || rob[i]->saturated) && int_fetch_lat[i]) {
+        // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
+        curTick[i] = max(rob[i]->getHead()->completeTick, nextFetchTick[i]);
+        if (rob[i]->is_full())
           Case1++;
-        }
-        else if (int_fetch_latency[i])
-        {
-          // Fast forward curTick to fetch instructions.
-          curTick[i] = nextFetchTick[i];
-        #pragma omp atomic
-          Case2++;
-        }
         else
-        {
-          curTick[i]++;
-        #pragma omp atomic
+          Case2++;
+      } else if (int_fetch_lat[i]) {
+        // Fast forward curTick to fetch instructions.
+        curTick[i] = nextFetchTick[i];
+        Case0++;
+      } else if (rob[i]->is_full() || rob[i]->saturated) {
+        // Fast forward curTick to retire instructions.
+        curTick[i] = rob[i]->getHead()->completeTick;
+        if (rob[i]->is_full())
           Case3++;
-        }
-        #ifdef DEBUG
-        cout<< "curTick: " << curTick[i]<<endl;
-        #endif
-        int_fetch_latency[i] = 0;
+        else
+          Case4++;
+      } else {
+        curTick++;
+        Case5++;
+      }
+      int_fetch_latency[i] = 0;
       }
     }
   }
@@ -759,22 +660,17 @@ gettimeofday(&start, NULL);
     aux_trace[i].close();
   }
 
-  //cout<<"Count: "<<count<<endl;
   cout << inst_num << " instructions finish by " << (curTick_final-1 ) << "\n";
   cout << "Time: " << total_time << "\n";
- // cout << "Total: " << total_time<<", Inference:"<<loop2_time<<"sec, ROB:"<<(total_time-measured_time);
-  //cout << "Total: " << total_time<<",L1:"<<loop1_time<<",L2:"<<loop2_time<<",L3:"<<loop3_time<<",L4:"<<loop4_time<<",L5:"<<loop5_time;
-  //cout << total_time* 1000000.0 / inst_num<<","<<loop1_time* 1000000.0 / inst_num<<","<<loop2_time* 1000000.0 / inst_num<<","<<loop3_time* 1000000.0 / inst_num<<","<<loop4_time* 1000000.0 / inst_num<<","<<loop5_time* 1000000.0 / inst_num;
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num<<endl; 
-  //cout << "sec ,USPI: " << total_time * 1000000.0 / inst_num<< ",Inference per inst: " << measured_time * 1000000.0/inst_num << ",ROB per inst "<<(total_time-measured_time) * 1000000.0/inst_num;
-  cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << "\n";
+  cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
   cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
   cout << "Lat Model: " << argv[3] << "\n";
-  cout<<"Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << " ,Prediction: "<< curTick_final << endl;
+  cout<<"Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << endl;
 //cout<<","<<atoi(argv[6])<<","<< Total_Trace <<","<< nGPU << ","<< curTick_final << endl;
 #endif
 #ifdef RUN_TRUTH
