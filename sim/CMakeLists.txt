@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(sim)
-set (CMAKE_CXX_FLAGS "-fopenmp")
+set (CMAKE_CXX_FLAGS "-fopenmp -O3 -Wextra -g")
 find_package(Torch REQUIRED)
 add_executable(simulator simulator.cpp)
 add_executable(simulator_parallel parall_simnet.cpp)
