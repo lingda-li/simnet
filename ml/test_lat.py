@@ -160,6 +160,9 @@ for i in range(2):
     print(errs)
 
   print("cycle err: ", np.average(errs[errs != -1]))
+  flat_target = target[:,i:i+1]
+  flat_target = flat_target.ravel()
+  print("presentage err: ", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]))
 
   his = np.histogram(errs, bins=range(-1, 100))
   print(errs[errs != -1].size / errs.size)
