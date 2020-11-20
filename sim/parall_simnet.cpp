@@ -12,7 +12,7 @@
 
 using namespace std;
 //#define CLASSIFY
-//#define DEBUG
+//#define DEBUG_L
 //#define NGPU_DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
@@ -212,7 +212,7 @@ int main(int argc, char *argv[])
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances> <class module>" << endl;
 #else
 
-  if (argc != 7)
+  if (argc< 8)
   {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances>" << endl;
     return 0;
@@ -266,7 +266,7 @@ cout<< "Arguments provided: "<<argc<<endl;
       const std::string device_string = dev;
       lat_module[i].to(device_string);
 #ifdef CLASSIFY
-      cla_module[i]= torch::jit::load(argv[8]);
+      cla_module[i]= torch::jit::load(argv[9]);
       cla_module[i].to(device_string);
 #endif
     }
@@ -283,11 +283,10 @@ float *varPtr = NULL;
   if (argc > 9)
     varPtr = read_numbers(argv[9], TD_SIZE);
 #else
-  if (argc > 8)
+  if (argc > 7)
   {
-	  cout<<"varPter provided."<<endl;
-    varPtr = read_numbers(argv[8], TD_SIZE);
-}
+    varPtr = read_numbers(argv[7], TD_SIZE);
+  }
 #endif
   if (varPtr)
     cout << "Use input factors.\n";
@@ -310,7 +309,7 @@ float *varPtr = NULL;
   Tick* lastFetchTick= new Tick[Total_Trace];
   //cout<<"Ticks loaded..."<<endl;
   int* index = new int[Total_Trace];
-  int*  inst_num_all= new int[Total_Trace];
+  int* inst_num_all= new int[Total_Trace];
   int* fetched_inst_num= new int[Total_Trace];
   int* fetched= new int[Total_Trace];
   int* ROB_flag= new int[Total_Trace];
@@ -392,12 +391,12 @@ gettimeofday(&start, NULL);
         {
           int retired = rob[i].retire_until(curTick[i]);
           #ifdef DEBUG
-          cout<<"Count: "<<count<<"Retired: "<<retired<<"Retired until: "<<inst_num_all[i]<<endl;
+          cout<<"Count: "<<count<<", Retired: "<<retired<<", Retired until: "<<inst_num_all[i]<<endl;
           #endif
           inst_num_all[i] += retired;
           fetched[i] = 0;
           #ifdef DEBUG
-          cout << "************" << "Curtick: " <<curTick[i] << "Retired: " <<retired << "Is_full: " << rob->is_full() << "************"
+          cout << "************" << ", Curtick: " <<curTick[i] << ", Retired: " <<retired << ", Is_full: " << rob->is_full() << "************"
                << "\n";
           #endif
         }
@@ -417,7 +416,7 @@ gettimeofday(&start, NULL);
           {
             eof[i]= true;
             #ifdef DEBUG
-            cout <<"Trace: "<<i<<"Instr: "<<inst_num_all[i]<<"eof true from read_train_data"<<endl;
+            cout <<"Trace: "<<i<<", Instr: "<<inst_num_all[i]<<", eof true from read_train_data"<<endl;
             #endif
             rob[i].tail = rob[i].dec(rob[i].tail);
           }
@@ -426,7 +425,7 @@ gettimeofday(&start, NULL);
           fetched_inst_num[i]++;
           if(fetched[i]>Batch_size){eof[i]= true;
           #ifdef DEBUG
-          cout <<"Trace: "<<i<< " ,end of batch size from fetch." << endl;
+          cout <<"Trace: "<<i<< " , end of batch size from fetch." << endl;
           #endif
           }
           #pragma omp atomic
@@ -528,10 +527,10 @@ gettimeofday(&start, NULL);
       float *output_arr= output[GPU_ID].data_ptr<float>();
       fetch_lat= output_arr[2*offset+0] * factor[1] + mean[1];
       finish_lat= output_arr[2*offset+1] * factor[3] + mean[3];
-      #ifdef NGPU_DEBUG
+      #ifdef DEBUG_L
       #pragma omp critical
           {
-          cout<<"Trace: "<<i<<"GPU_ID: "<<GPU_ID<<" offset" <<offset<<" fetch: "<<fetch_lat<<" finish: "<<finish_lat<<endl;
+          cout<<"Trace: "<<i<<", GPU_ID: "<<GPU_ID<<", offset" <<offset<<", fetch: "<<fetch_lat<<", finish: "<<finish_lat<<endl;
           }
       #endif 
       int int_fetch_lat = round(fetch_lat);
@@ -563,8 +562,8 @@ gettimeofday(&start, NULL);
       newInst[i]->tickNum = int_finish_lat;
       newInst[i]->completeTick = curTick[i] + int_finish_lat + int_fetch_lat;
       lastFetchTick[i] = curTick[i];
-      #ifdef DEBUG 
-        cout<<"newInst update"<<endl;
+      #ifdef DEBUG_L 
+        //cout<<"newInst update"<<endl;
         cout << newInst[i]->train_data[0] << " " << newInst[i]->train_data[1] << " " << newInst[i]->train_data[2] << " " << newInst[i]->train_data[3]<<" "<<newInst[i]->tickNum<<" "<<newInst[i]->completeTick<<" "<<nextFetchTick[i]<< endl;
       #endif
       int_fetch_latency[i] = int_fetch_lat;
@@ -582,7 +581,11 @@ gettimeofday(&start, NULL);
       	  
       }
     }
-    //return 0;
+#ifdef DEBUG_L
+        if (fetched[0])
+		      cout << curTick[0] << " f " << fetched[0] << "\n";
+#endif
+    	//return 0;
      gettimeofday(&end, NULL);
      loop3_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
     //cout<<"Result updated"<<endl;
@@ -598,7 +601,7 @@ gettimeofday(&start, NULL);
         if ((rob[i].is_full() || rob[i].saturated) && int_fetch_latency[i]) {
         // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
         curTick[i] = max(rob[i].getHead()->completeTick, nextFetchTick[i]);
-        if (rob[i].is_full())
+	if (rob[i].is_full())
           Case1++;
         else
           Case2++;
@@ -614,14 +617,16 @@ gettimeofday(&start, NULL);
         else
           Case4++;
       } else {
-        curTick++;
+        curTick[i]++;
         Case5++;
       }
       int_fetch_latency[i] = 0;
       }
     }
   }
-
+#ifdef DEBUG_L
+      cout<<"curTick: "<<curTick[0]<<endl;
+#endif
 
    gettimeofday(&end, NULL);
    loop4_time += end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
@@ -643,7 +648,7 @@ gettimeofday(&start, NULL);
     #ifdef DEBUG
     for(int i=0 ; i< Total_Trace;i++)
     {
-      cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<"curTick: " << curTick[i] << "Rob status: "<< rob[i].is_empty()<< endl;
+      cout<<"Trace:"<<i<<", Inst: "<< inst_num_all[i]<<", curTick: " << curTick[i] << ", Rob status: "<< rob[i].is_empty()<< endl;
     }
     #endif
     // cout<<"Stop flag: "<<stop_flag<<endl;
