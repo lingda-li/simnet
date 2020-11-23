@@ -11,8 +11,8 @@
 #include <torch/cuda.h>
 
 using namespace std;
-//#define CLASSIFY
-//#define DEBUG_L
+#define CLASSIFY
+//#define DEBUG
 //#define NGPU_DEBUG
 //#define VERBOSE
 //#define RUN_TRUTH
@@ -208,11 +208,13 @@ int main(int argc, char *argv[])
   // cout << "main function called. Argc:  " <<argc<< endl;
 
 #ifdef CLASSIFY
-  if (argc != 8) {
+  if (argc != 9) {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances> <class module>" << endl;
+    return 0;
+  }
 #else
 
-  if (argc< 8)
+  if (argc != 8)
   {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> <#nGPU> <OpenMP threads> <variances>" << endl;
     return 0;
@@ -248,9 +250,9 @@ cout<< "Arguments provided: "<<argc<<endl;
   torch::jit::script::Module lat_module[nGPU];
 #ifdef CLASSIFY
   torch::jit::script::Module cla_module[nGPU];
+   at::Tensor cla_output[nGPU];
 #endif
   at::Tensor *input= new at::Tensor[nGPU]; 
-  //cout<<"Parameters loaded..."<<endl;
   try
   {
     // Deserialize the ScriptModule from a file using torch::jit::load().
@@ -266,7 +268,7 @@ cout<< "Arguments provided: "<<argc<<endl;
       const std::string device_string = dev;
       lat_module[i].to(device_string);
 #ifdef CLASSIFY
-      cla_module[i]= torch::jit::load(argv[9]);
+      cla_module[i]= torch::jit::load(argv[8]);
       cla_module[i].to(device_string);
 #endif
     }
@@ -277,13 +279,14 @@ cout<< "Arguments provided: "<<argc<<endl;
     cerr << "error loading the model\n";
     return 0;
   }
+  cout<<"Parameters loaded..."<<endl;
 
 float *varPtr = NULL;
 #ifdef CLASSIFY
-  if (argc > 9)
-    varPtr = read_numbers(argv[9], TD_SIZE);
+  if (argc = 9)
+    varPtr = read_numbers(argv[7], TD_SIZE);
 #else
-  if (argc > 7)
+  if (argc = 8)
   {
     varPtr = read_numbers(argv[7], TD_SIZE);
   }
@@ -301,7 +304,7 @@ float *varPtr = NULL;
     // cout << default_val[i] << " ";
   }
 
-  omp_set_num_threads(atoi(argv[6]));
+  //omp_set_num_threads(atoi(argv[6]));
   ifstream* trace= new ifstream[Total_Trace];
   ifstream* aux_trace= new ifstream[Total_Trace];
   Tick* curTick= new Tick[Total_Trace];
@@ -321,6 +324,7 @@ float *varPtr = NULL;
   char AuxTrace_Buffer[Total_Trace][20000];
 #endif
   //cout<<"Memory allocated..."<<endl;
+
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
@@ -355,7 +359,7 @@ float *varPtr = NULL;
 
   // float *inputPtr = input.data_ptr<float>();
   int i, count = 0, stop_flag=0;
-  // cout<<"Batch size: "<< Batch_size <<endl;
+  //cout<<"Batch size: "<< Batch_size <<endl;
   struct ROB *rob = new ROB[Total_Trace];
   Tick Case0 = 0;
   Tick Case1 = 0;
@@ -368,6 +372,7 @@ float *varPtr = NULL;
   struct timeval loop1_start,loop2_start,loop3_start,loop4_start,loop5_start,loop1_end,loop2_end,loop3_end,loop4_end,loop5_end;
   double loop1_time=0,loop2_time=0,loop3_time=0,loop4_time=0,loop5_time=0;
   gettimeofday(&total_start, NULL);
+   omp_set_num_threads(atoi(argv[6]));
 #ifdef DEBUG
   cout<<"Simulation starting....."<<endl;
 #endif
@@ -476,6 +481,7 @@ gettimeofday(&start, NULL);
    gettimeofday(&start, NULL);
   // Parallel inference
     /************************************************************************************************/
+   //cout<<input[0]<<endl;
 #pragma omp parallel for
     for(i=0;i<nGPU; i++){
         std::vector<torch::jit::IValue> inputs;
@@ -493,10 +499,10 @@ gettimeofday(&start, NULL);
 	  output[i]= lat_module[i].forward(inputs).toTensor();
 	  output[i]=output[i].to(at::kCPU);
 	  #ifdef CLASSIFY
-	  cla_output[i]= cla_module.forward(inputs).toTensor();
-	  #endif
+	  cla_output[i]= cla_module[i].forward(inputs).toTensor();
+	  cla_output[i]=cla_output[i].to(at::kCPU);  
+	#endif
       	}
-
     gettimeofday(&end, NULL);
     // Aggregate results
      gettimeofday(&start, NULL);
@@ -506,14 +512,15 @@ gettimeofday(&start, NULL);
 	if(!eof[i]){
 	 int GPU_ID = (i)%nGPU;
       int offset = i / nGPU;
-	    #ifdef CLASSIFY
+      //cout<<"Trace: "<<i<<" "<<GPU_ID<<" "<<offset<<endl;	
+      #ifdef CLASSIFY
       int f_class, c_class;
       for (int i = 0; i < 2; i++) {
-        float max = cla_output[nGPU][offset][10*i].item<float>();
-        int idx = 0;
+        float max = cla_output[GPU_ID][offset][10*i].item<float>();
+	int idx = 0;
         for (int j = 1; j < 10; j++) {
-          if (max < cla_output[nGPU][offset][10*i+j].item<float>()) {
-            max = cla_output[nGPU][offset][10*i+j].item<float>();
+          if (max < cla_output[GPU_ID][offset][10*i+j].item<float>()) {
+            max = cla_output[GPU_ID][offset][10*i+j].item<float>();
             idx = j;
           }
         }
@@ -678,7 +685,7 @@ gettimeofday(&start, NULL);
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
   cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
-  cout << "Model: " << argv[3] << " " << argv[4] << "\n";
+  cout << "Model: " << argv[3] << " " << argv[9] << "\n";
 #else
   cout << "Lat Model: " << argv[3] << "\n";
   cout<<"Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << endl;
