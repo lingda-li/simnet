@@ -336,19 +336,19 @@ float *varPtr = NULL;
     fetched[i] = 0;
     eof[i] = false;
     int offset = i * Batch_size;
-    std::string line;
+    std::string line,line1;
     int number_of_lines = 0;
     #ifdef PREFETCH
     	trace[i].rdbuf()->pubsetbuf(Trace_Buffer[i], 20000);    
     	aux_trace[i].rdbuf()->pubsetbuf(AuxTrace_Buffer[i], 20000);
     #endif
     trace[i].open(argv[1]);
-    while (std::getline(trace[i], line) && (number_of_lines < offset))
-      ++number_of_lines;
     aux_trace[i].open(argv[2]);
-    number_of_lines = 0;
-    while (std::getline(aux_trace[i], line) && (number_of_lines < offset))
+    while (std::getline(trace[i], line) && std::getline(aux_trace[i], line1) && (number_of_lines < offset))
       ++number_of_lines;
+    //number_of_lines = 0;
+    //while (std::getline(aux_trace[i], line) && (number_of_lines < offset))
+      //++number_of_lines;
     // cout <<endl<< "I:" << i << "\tSkipped: " << number_of_lines << endl;
     if (i == 0)
     {
@@ -686,12 +686,12 @@ gettimeofday(&start, NULL);
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
   cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
-  cout << "Model: " << argv[3] << " " << argv[9] << "\n";
+  cout << "Model: " << argv[3] << " " << argv[8] << "\n";
 #else
   cout << "Lat Model: " << argv[3] << "\n";
+#endif
   cout<<"Threads: "<<atoi(argv[6])<<" ,Batch: "<< Total_Trace <<" ,GPUs: "<< nGPU << endl;
 //cout<<","<<atoi(argv[6])<<","<< Total_Trace <<","<< nGPU << ","<< curTick_final << endl;
-#endif
 #ifdef RUN_TRUTH
   cout << "Truth"
        << "\n";
