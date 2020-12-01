@@ -44,6 +44,8 @@ float mean[TD_SIZE];
 
 float default_val[TD_SIZE];
 
+Addr getLine(Addr in) { return in & ~0x3f; }
+
 struct Inst {
   float train_data[TD_SIZE];
   Tick inTick;
@@ -64,6 +66,7 @@ struct Inst {
     trace >> trueFetchClass >> trueFetchTick;
     trace >> trueCompleteClass >> trueCompleteTick;
     aux_trace >> pc;
+    pc = getLine(pc);
     if (trace.eof()) {
       assert(aux_trace.eof());
       return false;
@@ -295,7 +298,8 @@ int main(int argc, char *argv[]) {
     // Fetch instructions.
     int fetched = 0;
     int int_fetch_lat;
-    while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) {
+    //while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) {
+    while (!rob->is_full() && !eof) {
       Inst *newInst = rob->add();
       if (!newInst->read_sim_data(trace, aux_trace)) {
         eof = true;
@@ -318,7 +322,10 @@ int main(int argc, char *argv[]) {
       }
       rob->make_input_data(inputPtr, curTick);
 #ifdef DUMP_ML_INPUT
-      cout << input << "\n";
+      for (int i = 0; i < ML_SIZE; i++)
+        cout << inputPtr[i] * factor[i % TD_SIZE] + mean[i % TD_SIZE] << " ";
+      cout << endl;
+      //cout << input << "\n";
 #endif
 #ifdef GPU
       inputs.push_back(input.cuda());
