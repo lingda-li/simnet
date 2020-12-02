@@ -11,7 +11,7 @@
 #include <torch/cuda.h>
 
 using namespace std;
-#define CLASSIFY
+//#define CLASSIFY
 //#define DEBUG
 //#define NGPU_DEBUG
 //#define VERBOSE
@@ -253,7 +253,7 @@ int main(int argc, char *argv[])
     ++lines;
   int Total_instr = lines;
   int Batch_size = Total_instr / Total_Trace;
-  cout << "Simulate " << Total_instr << " instructions (" << Batch_size
+  cout << "Simulate " << Total_instr << " instructions (" << Total_Trace
        << " batches * " << Batch_size << ")\n";
 
   int nGPU = atoi(argv[5]);
@@ -383,9 +383,6 @@ int main(int argc, char *argv[])
     gettimeofday(&start, NULL);
 #pragma omp parallel for
     for (i = 0; i < Total_Trace; i++) {
-      // std::clock_t c_start = std::clock();
-      // float *inputPtr = input.data_ptr<float>();
-      // cout<<"I: "<<i<<" Pointer: "<<inputPtr<<endl;
       if (!eof[i] || !rob[i].is_empty()) {
         // Retire instructions.
         if (ROB_flag[i]) {
@@ -403,7 +400,8 @@ int main(int argc, char *argv[])
                << "\n";
 #endif
         }
-        if (fetched[i] < FETCH_BANDWIDTH && !rob[i].is_full() && !eof[i]) {
+        //if (fetched[i] < FETCH_BANDWIDTH && !rob[i].is_full() && !eof[i])
+        if (!rob[i].is_full() && !eof[i]) {
           ROB_flag[i] = false;
           if (inst_num_all[i] > (Batch_size - 1)) {
             eof[i] = true;
@@ -426,14 +424,6 @@ int main(int argc, char *argv[])
 
           fetched[i]++;
           fetched_inst_num[i]++;
-          // ??
-          if (fetched[i] > Batch_size) {
-            eof[i] = true;
-#ifdef DEBUG
-            cout << "Trace: " << i << " , end of batch size from fetch."
-                 << endl;
-#endif
-          }
 #pragma omp atomic
           count += 1;
           newInst[i]->inTick = curTick[i];
@@ -454,9 +444,6 @@ int main(int argc, char *argv[])
                  << " offset: " << offset << " inputPtr: " << inputPtr << endl;
           }
 #endif
-          // cout<<input<<endl;
-          // Determine the GPU to push the result.
-          // int GPU_ID = 0;
           if ((fetched[i] == FETCH_BANDWIDTH)) {
             ROB_flag[i] = true;
 #ifdef DEBUG
@@ -601,6 +588,8 @@ int main(int argc, char *argv[])
     gettimeofday(&end, NULL);
     loop3_time +=
         end.tv_sec - start.tv_sec + (end.tv_usec - start.tv_usec) / 1000000.0;
+
+    // Advance clock.
     //cout<<"Result updated"<<endl;
     /**********************************************************************/
     gettimeofday(&start,NULL);
