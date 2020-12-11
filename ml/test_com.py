@@ -15,9 +15,6 @@ matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
 
-lat_model_name = sys.argv[1]
-class_model_name = sys.argv[2]
-data_set_name = sys.argv[3]
 inst_type = -2
 #inst_type = -1
 #inst_type = 25
@@ -29,8 +26,6 @@ out_fetch = False
 out_comp = False
 #use_cuda = True
 use_cuda = False
-
-fs = np.load(data_set_name + "/statsall.npz")
 
 def get_inst_type(vals, n):
   idx = inst_length * n
@@ -45,7 +40,23 @@ def get_inst(vals, n):
   else:
     return np.rint(vals[inst_length*n:inst_length*(n+1)] * np.sqrt(fs['all_var']))
 
+if len(sys.argv) == 4:
+  print("Use seperate models")
+  lat_model_name = sys.argv[1]
+  class_model_name = sys.argv[2]
+  data_set_name = sys.argv[3]
+  combined = False
+elif len(sys.argv) == 3:
+  print("Use combined model")
+  lat_model_name = sys.argv[1]
+  data_set_name = sys.argv[2]
+  combined = True
+else:
+  print("Illegal arguments")
+  exit()
+
 f = np.load(data_set_name + "/test.npz")
+fs = np.load(data_set_name + "/statsall.npz")
 x = f['x']
 
 y = np.copy(x[:,0:1])
@@ -67,31 +78,35 @@ x_test = torch.from_numpy(x.astype('f'))
 
 if use_cuda:
   device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  simnet = torch.load('models/' + class_model_name, map_location='cuda')
-else:
-  simnet = torch.load('models/' + class_model_name, map_location='cpu')
-output_all = simnet(x_test)
-simnet.eval()
-print("class output:", output_all)
-
-if use_cuda:
-  device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-  simnet = torch.load('models/' + lat_model_name, map_location='cuda')
+  lat_simnet = torch.load('models/' + lat_model_name, map_location='cuda')
 else:
   lat_simnet = torch.load('models/' + lat_model_name, map_location='cpu')
 lat_output_all = lat_simnet(x_test)
 lat_simnet.eval()
-lat_output_all = lat_output_all.detach().numpy()
+lat_output_all_np = lat_output_all.detach().numpy()
 print("latency output:", lat_output_all)
+
+if not(combined):
+  if use_cuda:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    simnet = torch.load('models/' + class_model_name, map_location='cuda')
+  else:
+    simnet = torch.load('models/' + class_model_name, map_location='cpu')
+  output_all = simnet(x_test)
+  simnet.eval()
+  print("class output:", output_all)
 
 for i in range(2):
   y_test = torch.from_numpy(y.astype(int))
   lat_y_test = torch.from_numpy(lat_y.astype('f'))
   y_test = y_test.view(-1)
-  output = torch.argmax(output_all[:,10*i:10*i+10], dim=1)
+  if combined:
+    output = torch.argmax(lat_output_all[:,10*i+2:10*i+12], dim=1)
+  else:
+    output = torch.argmax(output_all[:,10*i:10*i+10], dim=1)
   output = output.detach().numpy()
   target = np.squeeze(y[:,i:i+1])
-  lat_output = np.squeeze(lat_output_all[:,i:i+1])
+  lat_output = np.squeeze(lat_output_all_np[:,i:i+1])
   lat_target = np.squeeze(lat_y[:,i:i+1])
   print("class output:", output)
   print("class target:", target)
