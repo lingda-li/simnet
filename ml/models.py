@@ -269,7 +269,8 @@ class CNN4_F(nn.Module):
         self.fc2 = nn.Linear(f1, out)
 
     def forward(self, x):
-        x = x.view(-1, inst_length, context_length)
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
