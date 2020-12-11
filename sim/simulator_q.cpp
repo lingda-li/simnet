@@ -9,6 +9,7 @@
 
 using namespace std;
 
+//#define COMBINED
 //#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
@@ -44,6 +45,8 @@ float mean[TD_SIZE];
 
 float default_val[TD_SIZE];
 
+Addr getLine(Addr in) { return in & ~0x3f; }
+
 struct Inst {
   float train_data[TD_SIZE];
   Tick inTick;
@@ -64,6 +67,7 @@ struct Inst {
     trace >> trueFetchClass >> trueFetchTick;
     trace >> trueCompleteClass >> trueCompleteTick;
     aux_trace >> pc;
+    pc = getLine(pc);
     if (trace.eof()) {
       assert(aux_trace.eof());
       return false;
@@ -295,7 +299,8 @@ int main(int argc, char *argv[]) {
     // Fetch instructions.
     int fetched = 0;
     int int_fetch_lat;
-    while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) {
+    //while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) {
+    while (!rob->is_full() && !eof) {
       Inst *newInst = rob->add();
       if (!newInst->read_sim_data(trace, aux_trace)) {
         eof = true;
@@ -318,7 +323,10 @@ int main(int argc, char *argv[]) {
       }
       rob->make_input_data(inputPtr, curTick);
 #ifdef DUMP_ML_INPUT
-      cout << input << "\n";
+      for (int i = 0; i < ML_SIZE; i++)
+        cout << inputPtr[i] * factor[i % TD_SIZE] + mean[i % TD_SIZE] << " ";
+      cout << endl;
+      //cout << input << "\n";
 #endif
 #ifdef GPU
       inputs.push_back(input.cuda());
@@ -332,16 +340,27 @@ int main(int argc, char *argv[]) {
 #endif
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       int f_class, c_class;
       for (int i = 0; i < 2; i++) {
+#if defined(CLASSIFY)
         float max = cla_output[0][10*i].item<float>();
+#else
+        float max = output[0][10*i+2].item<float>();
+#endif
         int idx = 0;
         for (int j = 1; j < 10; j++) {
+#if defined(CLASSIFY)
           if (max < cla_output[0][10*i+j].item<float>()) {
             max = cla_output[0][10*i+j].item<float>();
             idx = j;
           }
+#else
+          if (max < output[0][10*i+2+j].item<float>()) {
+            max = output[0][10*i+2+j].item<float>();
+            idx = j;
+          }
+#endif
         }
         if (i == 0)
           f_class = idx;
@@ -357,7 +376,7 @@ int main(int argc, char *argv[]) {
         int_fetch_lat = 0;
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       if (f_class <= 8)
         int_fetch_lat = f_class;
       if (c_class <= 8)
@@ -435,7 +454,7 @@ int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
-  cout << "Lat Model: " << argv[3] << "\n";
+  cout << "Model: " << argv[3] << "\n";
 #endif
   return 0;
 }
