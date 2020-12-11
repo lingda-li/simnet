@@ -60,7 +60,8 @@ class CNN3_F(nn.Module):
         self.fc2 = nn.Linear(f1, out)
 
     def forward(self, x):
-        x = x.view(-1, inst_length, context_length)
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -165,7 +166,8 @@ class CNN3_F_P(nn.Module):
         self.fc2 = nn.Linear(f1, out)
 
     def forward(self, x):
-        x = x.view(-1, inst_length, context_length)
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
         xi = torch.cat((x[:, :, 0:1], x[:, :, 1:2]), 2)
         y = self.convp(xi)
         for i in range(2, context_length):
