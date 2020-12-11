@@ -22,7 +22,10 @@ if not(os.path.exists(var_txt_file)):
 
 lat_model = "models/" + sys.argv[4]
 if len(sys.argv) == 5:
-  binary = "./sim/build/simulator_q"
+  if "_com" in lat_model:
+    binary = "./sim/build/simulator_q_com"
+  else:
+    binary = "./sim/build/simulator_q"
   cmd = [binary,
          tr_file_name,
          aux_file_name,

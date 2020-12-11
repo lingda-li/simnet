@@ -9,6 +9,7 @@
 
 using namespace std;
 
+//#define COMBINED
 //#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
@@ -339,16 +340,27 @@ int main(int argc, char *argv[]) {
 #endif
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       int f_class, c_class;
       for (int i = 0; i < 2; i++) {
+#if defined(CLASSIFY)
         float max = cla_output[0][10*i].item<float>();
+#else
+        float max = output[0][10*i+2].item<float>();
+#endif
         int idx = 0;
         for (int j = 1; j < 10; j++) {
+#if defined(CLASSIFY)
           if (max < cla_output[0][10*i+j].item<float>()) {
             max = cla_output[0][10*i+j].item<float>();
             idx = j;
           }
+#else
+          if (max < output[0][10*i+2+j].item<float>()) {
+            max = output[0][10*i+2+j].item<float>();
+            idx = j;
+          }
+#endif
         }
         if (i == 0)
           f_class = idx;
@@ -364,7 +376,7 @@ int main(int argc, char *argv[]) {
         int_fetch_lat = 0;
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       if (f_class <= 8)
         int_fetch_lat = f_class;
       if (c_class <= 8)
@@ -442,7 +454,7 @@ int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
-  cout << "Lat Model: " << argv[3] << "\n";
+  cout << "Model: " << argv[3] << "\n";
 #endif
   return 0;
 }
