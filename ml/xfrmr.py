@@ -48,7 +48,7 @@ class TransformerModel(nn.Module):
             print(mask.shape)
             print(mask)
             self.src_mask = mask
-
+        print("Input shape is",src.shape)
         src = self.encoder(src) * math.sqrt(self.ninp)
         print("Encoder output shape is",src.shape)
         src = self.pos_encoder(src)
@@ -74,7 +74,8 @@ class PositionalEncoding(nn.Module):
         pe = torch.zeros(max_len, d_model) #5000 x 51
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) #5000,1
         print("position shape",position.shape)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)) #26
+        seq_length = 111 #10000
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(seq_length)/d_model))#26
         print("div_term shape",div_term.shape) 
         pe[:, 0::2] = torch.sin(position * div_term)
         dimen = pe[:,1::2].shape[-1]
@@ -86,7 +87,6 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
-
 
 
 class CustomTransformerModel(nn.Module):
@@ -102,7 +102,10 @@ class CustomTransformerModel(nn.Module):
         self.model_type = 'Transformer'
         self.src_mask = None
         self.pos_encoder = PositionalEncoding(ninp, dropout)
-        encoder_layers = TransformerEncoderLayer(d_model=ninp, nhead=nhead, dim_feedforward=nhid, dropout=dropout)
+        encoder_layers = TransformerEncoderLayer(d_model=ninp,
+                                                 nhead=nhead,
+                                                 dim_feedforward=nhid,
+                                                 dropout=dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
 
         self.ninp = ninp
@@ -122,13 +125,18 @@ class CustomTransformerModel(nn.Module):
         self.decoder.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, src):
+        src = src.transpose(0,1) # for multigpu
         if self.src_mask is None or self.src_mask.size(0) != src.size(0):
             device = src.device
             mask = self._generate_square_subsequent_mask(src.size(0)).to(device)
             self.src_mask = mask
         #print("In forward.", src.shape)
+        #print("Input shape is",src.shape)
+
         src = src * math.sqrt(self.ninp)
         src = self.pos_encoder(src)
+        #print("After pos encoder, shape is",src.shape)
         output = self.transformer_encoder(src, self.src_mask)
         output = self.decoder(output)
+        output = output.transpose(0,1) # for multigpu
         return output
