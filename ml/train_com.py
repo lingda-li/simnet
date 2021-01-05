@@ -62,18 +62,25 @@ y_test_cla_g = y_test_cla.to(device)
 
 loss = nn.MSELoss()
 loss_cla = nn.CrossEntropyLoss()
-#simnet = CNN3_F(20, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 400)
+#simnet = CNN3_F_P_COM(64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
 simnet = CNN3_F_P(22, 64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
 optimizer = torch.optim.Adam(simnet.parameters())
-values = []
-test_values = []
+values0 = []
+values1 = []
+values2 = []
+test_values0 = []
+test_values1 = []
+test_values2 = []
 
 for i in range(epoch_num):
     print(i, ":", flush=True, end=' ')
     startt = time.time()
+    epoch_loss_0 = 0.0
+    epoch_loss_1 = 0.0
+    epoch_loss_2 = 0.0
     for didx in range(batchnum):
         if didx % print_threshold == 0:
             print('.', flush=True, end='')
@@ -83,32 +90,47 @@ for i in range(epoch_num):
         y_cla = y_cla.to(device)
 
         output = simnet(x)
-        value = loss(output[:,0:2],y)
-        values.append(value.cpu().data)
-        value0 = loss_cla(output[:,2:12],y_cla[:,0:1].view(-1))
-        values.append(value0.cpu().data)
-        value1 = loss_cla(output[:,12:22],y_cla[:,1:2].view(-1))
-        values.append(value1.cpu().data)
+        #output, fc, rc = simnet(x)
+        value0 = loss(output[:,0:2],y)
+        epoch_loss_0 += value0.cpu().item()
+        value1 = loss_cla(output[:,2:12],y_cla[:,0:1].view(-1))
+        epoch_loss_1 += value1.cpu().item()
+        value2 = loss_cla(output[:,12:22],y_cla[:,1:2].view(-1))
+        epoch_loss_2 += value2.cpu().item()
         optimizer.zero_grad()
-        value.backward(retain_graph=True)
-        value0.backward(retain_graph=True)
-        value1.backward()
+        #value0.backward(retain_graph=True)
+        #value1.backward(retain_graph=True)
+        #value2.backward()
+        all_loss = 20 * value0 + value1 + value2
+        all_loss.backward()
         optimizer.step()
 
-    output = simnet(x_test_g)
-    value = loss(output[:,0:2],y_test_g)
-    value0 = loss_cla(output[:,2:12],y_test_cla_g[:,0:1].view(-1))
-    value1 = loss_cla(output[:,12:22],y_test_cla_g[:,1:2].view(-1))
     endt = time.time()
     print(":", endt - startt)
-    test_values.append(value.cpu().data)
-    test_values.append(value0.cpu().data)
-    test_values.append(value1.cpu().data)
-    print(test_values)
+    epoch_loss_0 /= batchnum
+    values0.append(epoch_loss_0)
+    epoch_loss_1 /= batchnum
+    values1.append(epoch_loss_1)
+    epoch_loss_2 /= batchnum
+    values2.append(epoch_loss_2)
+    print(epoch_loss_0, epoch_loss_1, epoch_loss_2)
+    output = simnet(x_test_g)
+    #output, fc, rc = simnet(x_test_g)
+    value0 = loss(output[:,0:2],y_test_g)
+    value1 = loss_cla(output[:,2:12],y_test_cla_g[:,0:1].view(-1))
+    value2 = loss_cla(output[:,12:22],y_test_cla_g[:,1:2].view(-1))
+    print(value0.cpu().item(), value1.cpu().item(), value2.cpu().item())
+    test_values0.append(value0.cpu().item())
+    test_values1.append(value1.cpu().item())
+    test_values2.append(value2.cpu().item())
 
 
-print(values)
-print(test_values)
+print("Training loss 0: ", values0)
+print("Training loss 1: ", values1)
+print("Training loss 2: ", values2)
+print("Testing loss 0", test_values0)
+print("Testing loss 1", test_values1)
+print("Testing loss 2", test_values2)
 if saved_model_name != "":
     if torch.cuda.device_count() > 1:
         torch.save(simnet.module, 'models/' + saved_model_name)
