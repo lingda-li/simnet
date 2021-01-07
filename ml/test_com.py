@@ -10,7 +10,7 @@ from itertools import product
 import matplotlib
 import pickle
 from sklearn import preprocessing
-from IPython.core.display import display, HTML
+#from IPython.core.display import display, HTML
 matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
@@ -81,8 +81,8 @@ if use_cuda:
   lat_simnet = torch.load('models/' + lat_model_name, map_location='cuda')
 else:
   lat_simnet = torch.load('models/' + lat_model_name, map_location='cpu')
-lat_output_all = lat_simnet(x_test)
 lat_simnet.eval()
+lat_output_all = lat_simnet(x_test)
 lat_output_all_np = lat_output_all.detach().numpy()
 print("latency output:", lat_output_all)
 
@@ -145,11 +145,12 @@ for i in range(2):
         errs[i] = -1
     print(errs)
 
-  print("cycle err: ", np.average(errs[errs != -1]))
+  print("cycle avg err:", np.average(errs[errs != -1]))
+  print("err std deviation:", np.std(errs[errs != -1]))
   flat_target = lat_target.ravel()
-  print("presentage err: ", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]))
+  print("err persentage:", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]))
 
   his = np.histogram(errs, bins=range(-1, 100))
-  print(errs[errs != -1].size / errs.size)
+  print("data percentage:", errs[errs != -1].size / errs.size)
   print(his[0] / errs[errs != -1].size)
   #print(his)

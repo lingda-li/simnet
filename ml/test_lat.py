@@ -71,8 +71,8 @@ if use_cuda:
   simnet = torch.load('models/' + loaded_model_name, map_location='cuda')
 else:
   simnet = torch.load('models/' + loaded_model_name, map_location='cpu')
-output = simnet(x_test)
 simnet.eval()
+output = simnet(x_test)
 loss = nn.MSELoss()
 if use_cuda:
   y_test = y_test.to(device)
