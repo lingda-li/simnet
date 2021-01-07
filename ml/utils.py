@@ -47,3 +47,13 @@ def test_com(net, x, y, y_cla, loss, loss_cla):
 
 def print_arr(arr):
     print(', '.join('{:0.5f}'.format(i) for i in arr))
+
+def generate_model_name(name):
+    name = name.replace(" ", "_")
+    name = name.replace(",", "_")
+    name = name.replace(".", "_")
+    name = name.replace("'", "_")
+    name = name.replace("\"", "_")
+    name = name.replace("(", "_")
+    name = name.replace(")", "_")
+    return name

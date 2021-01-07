@@ -9,30 +9,34 @@ import torch.nn.functional as F
 from itertools import product
 import pickle
 from sklearn import preprocessing
+from datetime import datetime
 np.random.seed(0)
+from cfg import *
 from utils import *
 from models import *
 
-if len(sys.argv) < 4:
+if len(sys.argv) < 3:
     print("Illegal arguments.")
     sys.exit()
     
-#epoch_num = 1
-epoch_num = 100
-data_set_name = sys.argv[1]
-batchnum = int(sys.argv[2])
-modelnum = len(sys.argv) - 3
-batchsize = 32 * 1024 * 2
-print_threshold = 16
-out_fetch = False
-out_comp = False
-#total_size = 342959816
-#testbatchnum = 5200
-total_size = 330203367
-testbatchnum = 5008
-if 5000 % batchnum != 0:
-  print("Warning: not aligned batch number")
-stride = math.floor(5000 / batchnum)
+os.environ['CUDA_VISIBLE_DEVICES'] = cuda_devices
+batchnum = int(sys.argv[1])
+modelnum = len(sys.argv) - 2
+
+if batchnum > train_max_num:
+    print("Too large training set.")
+    sys.exit()
+elif train_max_num % batchnum != 0:
+    print("Warning: training set not aligned.")
+stride = math.floor(train_max_num / batchnum)
+    
+if large_model:
+    batchsize = ori_batch_size // large_model_scale_factor
+    testbatchnum *= large_model_scale_factor
+    batchnum *= large_model_scale_factor
+    print_threshold *= large_model_scale_factor
+else:
+    batchsize = ori_batch_size
 
 f = np.memmap(data_set_name + "/totalall.mmap", dtype=np.float32,
               mode='r',shape=(total_size, context_length*inst_length))
@@ -44,6 +48,7 @@ print("Train", modelnum, "models with", batchnum*batchsize, ", test with", int(0
 x_test, y_test, y_test_cla = get_data(f, fs, testbatchnum*batchsize, int((testbatchnum+0.5)*batchsize), device)
 loss = nn.MSELoss()
 loss_cla = nn.CrossEntropyLoss()
+
 
 model_name = []
 simnet = []
@@ -62,18 +67,22 @@ for i in range(modelnum):
     test_values1.append([])
     test_values2.append([])
 
+
+# Init models.
 for i in range(modelnum):
-    model_name.append(sys.argv[i + 3])
-    if i == 0:
-        simnet.append(CNN3_F_P(22, 64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400))
-    else:
-        simnet.append(CNN7_F(22, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 2, 512, 2, 0, 2, 1024, 2, 1, 2, 2048, 2, 0, 2, 4096, 2, 0, 400))
+    cur_model = sys.argv[i + 2]
+    model_name.append(generate_model_name(cur_model + " " + datetime.now().strftime("%m%d%y")))
+    cur_model = eval(cur_model)
+    print("Model", i, ":", cur_model, flush=True)
+    simnet.append(cur_model)
     if torch.cuda.device_count() > 1:
         simnet[i] = nn.DataParallel(simnet[i])
     simnet[i].to(device)
     optimizer.append(torch.optim.Adam(simnet[i].parameters()))
 
+
 for e in range(epoch_num):
+    # Train 1 epoch.
     print(e, ":", flush=True, end=' ')
     startt = time.time()
     loss_0 = []
@@ -92,6 +101,8 @@ for e in range(epoch_num):
                                                         loss_0[i], loss_1[i], loss_2[i],
                                                         loss, loss_cla, optimizer[i])
 
+
+    # Finish 1 epoch.
     endt = time.time()
     print(":", endt - startt)
     for i in range(modelnum):
@@ -122,6 +133,7 @@ for i in range(modelnum):
     print_arr(test_values1[i])
     print("Model", i, "testing loss 2:", end=' ')
     print_arr(test_values2[i])
+    print("Save model", i, "as", model_name[i])
     if torch.cuda.device_count() > 1:
         torch.save(simnet[i].module, 'models/' + model_name[i])
     else:
