@@ -5,6 +5,23 @@ import torch.nn.functional as F
 from cfg import context_length, inst_length
 from enet import Efficient1DNet
 
+class Fusion1d(nn.Module):
+    def __init__(self, out):
+        super(Fusion1d, self).__init__()
+        self.out = out
+        self._fu0 = nn.Linear(inst_length, out, bias=False)
+        self._fu1 = nn.Linear(inst_length, out, bias=False)
+
+    def forward(self, x):
+        x = x.view(-1, context_length, inst_length)
+        x0 = self._fu0(x[:, 0, :])
+        y = x.new(x.size(0), self.out, context_length - 1)
+        print(y.size())
+        for i in range(1, context_length):
+            y[:, :, i-1] = self._fu1(x[:, i, :]) + x0
+        x = F.relu(y)
+        return x
+
 class FC2(nn.Module):
     def __init__(self, out, f1):
         super(FC2, self).__init__()
