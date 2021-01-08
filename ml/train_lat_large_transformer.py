@@ -45,25 +45,32 @@ f = np.memmap(data_set_name + "/totalall.mmap", dtype=np.float32,
               mode='r',shape=(total_size, context_length*inst_length))
 fs = np.load(data_set_name + "/statsall.npz")
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+var = np.sqrt(fs['all_var'])
+var = torch.from_numpy(var).float()
+
+
+      
 print(torch.cuda.device_count(), " GPUs, ", device)
+var=var.to(device)
 
 x_test, y_test = get_lat(f, testbatchnum*batchsize, int((testbatchnum+1)*batchsize))
 x_test_g = x_test.to(device)
-x_test_g = x_test_g.view(-1,context_length,inst_length) 
+x_test_g = x_test_g.view(-1,context_length,inst_length)#/var
 x_test_g = x_test_g.permute([1,0,2])
 x_test_g = x_test_g.transpose(0,1) # for multigpu
 y_test_g = y_test.to(device)
-
 print("Train with ", batchnum*batchsize, ", test with", len(x_test))
 
 loss = nn.MSELoss()
 #simnet = CNN3(2, 5, 64, 5, 64, 5, 256, 400)
 #simnet = CNN3_F(2, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 400)
 simnet= CustomTransformerModel(ninp=51,
-                               nhead=3,
+                               nhead=17,
                                nhid=400,
-                               nlayers=2,
+                               nlayers=3,
                                dropout=0)
 
 print("Params:",sum(p.numel() for p in simnet.parameters()))
@@ -84,14 +91,18 @@ for i in range(epoch_num):
         #x, y = get_lat(f, didx*batchsize, (didx+1)*batchsize)
       
         x, y = get_lat(f, didx*stride*batchsize, (didx*stride+1)*batchsize)
-        x= x.view(-1,context_length,inst_length) 
-        x = x.permute([1,0,2])
         
-        x = x.transpose(0,1) # for multigpu
         
         #print(x.shape)
         x = x.to(device)
         y = y.to(device)
+
+
+        x= x.view(-1,context_length,inst_length)#/var #shape is X
+       
+        x = x.permute([1,0,2])
+        
+        x = x.transpose(0,1) # for multigpu
 
         output = simnet(x)
         output = output.transpose(0,1) # for multigpu

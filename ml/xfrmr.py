@@ -6,10 +6,10 @@ import torch.nn.functional as F
 class TransformerModel(nn.Module):
 
     def __init__(self,
-                 ntoken, # size of vocabulary
-                 ninp, # what dimension we want to embed our vocabulary
-                 nhead, # number of 'heads'
-                 nhid,  # dimension of the feedforward network in nn.TransformerEncoder
+                 ntoken,  # size of vocabulary
+                 ninp,    # what dimension we want to embed our vocabulary
+                 nhead,   # number of 'heads'
+                 nhid,    # dimension of the feedforward network in nn.TransformerEncoder
                  nlayers, #number of encoder layers
                  dropout=0.5):
         print("ninp",ninp,
@@ -73,10 +73,8 @@ class PositionalEncoding(nn.Module):
 
         pe = torch.zeros(max_len, d_model) #5000 x 51
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) #5000,1
-        print("position shape",position.shape)
         seq_length = 111 #10000
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(seq_length)/d_model))#26
-        print("div_term shape",div_term.shape) 
         pe[:, 0::2] = torch.sin(position * div_term)
         dimen = pe[:,1::2].shape[-1]
         print("Dimen",dimen)
@@ -115,9 +113,9 @@ class CustomTransformerModel(nn.Module):
 
     def _generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        mask = mask.float().masked_fill(mask == 0, float(0.0)).masked_fill(mask == 1, float(0.0))
         return mask
-
+    
     def init_weights(self):
         initrange = 0.1
 
@@ -130,12 +128,9 @@ class CustomTransformerModel(nn.Module):
             device = src.device
             mask = self._generate_square_subsequent_mask(src.size(0)).to(device)
             self.src_mask = mask
-        #print("In forward.", src.shape)
-        #print("Input shape is",src.shape)
 
         src = src * math.sqrt(self.ninp)
         src = self.pos_encoder(src)
-        #print("After pos encoder, shape is",src.shape)
         output = self.transformer_encoder(src, self.src_mask)
         output = self.decoder(output)
         output = output.transpose(0,1) # for multigpu
