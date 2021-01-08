@@ -10,7 +10,7 @@ from itertools import product
 import matplotlib
 import pickle
 from sklearn import preprocessing
-from IPython.core.display import display, HTML
+#from IPython.core.display import display, HTML
 matplotlib.rcParams.update({'font.size': 16})
 np.random.seed(0)
 from models import *
@@ -32,23 +32,8 @@ use_cuda = False
 
 if pre_scale:
   fs = np.load(data_set_name + "/statsall.npz")
-
-def get_inst_type(vals, n):
-  idx = inst_length * n
-  if pre_scale:
-    if use_mean:
-      return np.rint(vals[4 + idx] * np.sqrt(fs['all_var'][4]) + fs['all_mean'][4])
-    else:
-      return np.rint(vals[4 + idx] * np.sqrt(fs['all_var'][4]))
-  else:
-    assert(not(use_mean))
-    return vals[4 + idx]
-
-def get_inst(vals, n):
-  if use_mean:
-    return np.rint(vals[inst_length*n:inst_length*(n+1)] * np.sqrt(fs['all_var']) + fs['all_mean'])
-  else:
-    return np.rint(vals[inst_length*n:inst_length*(n+1)] * np.sqrt(fs['all_var']))
+else:
+  fs = None
 
 f = np.load(data_set_name + "/test.npz")
 x = f['x']
@@ -148,7 +133,7 @@ for i in range(2):
 
   if inst_type >= -1:
     for i in range(errs.size):
-      cur_inst_type = get_inst_type(x[i], 0)
+      cur_inst_type = get_inst_type(x[i], 0, fs)
       if not(use_mean):
         cur_inst_type -= 1
       #print(cur_inst_type)

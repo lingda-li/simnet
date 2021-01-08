@@ -41,9 +41,8 @@ def get_lat(arr, low, high):
     y = torch.from_numpy(y.astype('f'))
     return x, y
 
-f = np.memmap(data_set_name + "/totalall.mmap", dtype=np.float32,
+f = np.memmap(data_set_name + "/totalall_nn.mmap", dtype=np.float32,
               mode='r',shape=(total_size, context_length*inst_length))
-fs = np.load(data_set_name + "/statsall.npz")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(torch.cuda.device_count(), " GPUs, ", device)
@@ -54,8 +53,8 @@ x_test_g = x_test.to(device)
 y_test_g = y_test.to(device)
 
 loss = nn.MSELoss()
-#simnet = CNN3(2, 5, 64, 5, 64, 5, 256, 400)
-simnet = CNN3_F(2, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 400)
+#simnet = CNN3_F_P(2, 128, 2, 128, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
+simnet = CNN7_F(2, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 2, 512, 2, 0, 2, 1024, 2, 1, 2, 2048, 2, 0, 2, 4096, 2, 0, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)

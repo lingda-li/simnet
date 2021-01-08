@@ -100,8 +100,6 @@ for e in range(epoch_num):
             loss_0[i], loss_1[i], loss_2[i] = train_com(simnet[i], x, y, y_cla,
                                                         loss_0[i], loss_1[i], loss_2[i],
                                                         loss, loss_cla, optimizer[i])
-
-
     # Finish 1 epoch.
     endt = time.time()
     print(":", endt - startt)
@@ -118,6 +116,9 @@ for e in range(epoch_num):
         test_values1[i].append(tloss_1)
         test_values2[i].append(tloss_2)
         print(i, ":", tloss_0, tloss_1, tloss_2)
+    if e % save_interval == 0 and e > 0:
+        for i in range(modelnum):
+            save_model(simnet[i], model_name[i], device)
 
 
 for i in range(modelnum):
@@ -133,8 +134,4 @@ for i in range(modelnum):
     print_arr(test_values1[i])
     print("Model", i, "testing loss 2:", end=' ')
     print_arr(test_values2[i])
-    print("Save model", i, "as", model_name[i])
-    if torch.cuda.device_count() > 1:
-        torch.save(simnet[i].module, 'models/' + model_name[i])
-    else:
-        torch.save(simnet[i], 'models/' + model_name[i])
+    save_model(simnet[i], model_name[i], device)

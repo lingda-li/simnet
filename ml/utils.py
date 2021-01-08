@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from cfg import context_length, inst_length, is_save_model
+
 
 def get_data(arr, s, low, high, device):
     x = np.copy(arr[low:high,])
@@ -22,6 +24,7 @@ def get_data(arr, s, low, high, device):
     y_cla = y_cla.to(device)
     return x, y, y_cla
 
+
 def train_com(net, x, y, y_cla, loss0, loss1, loss2, loss, loss_cla, optimizer):
     output = net(x)
     #output, fc, rc = net(x)
@@ -37,6 +40,7 @@ def train_com(net, x, y, y_cla, loss0, loss1, loss2, loss, loss_cla, optimizer):
     optimizer.step()
     return loss0, loss1, loss2
 
+
 def test_com(net, x, y, y_cla, loss, loss_cla):
     output = net(x)
     #output, fc, rc = net(x)
@@ -45,10 +49,12 @@ def test_com(net, x, y, y_cla, loss, loss_cla):
     value2 = loss_cla(output[:,12:22],y_cla[:,1:2].view(-1))
     return value0.cpu().item(), value1.cpu().item(), value2.cpu().item()
 
+
 def print_arr(arr):
     print(', '.join('{:0.5f}'.format(i) for i in arr))
 
-def generate_model_name(name):
+
+def generate_model_name(name, epochs=None):
     name = name.replace(" ", "_")
     name = name.replace(",", "_")
     name = name.replace(".", "_")
@@ -56,4 +62,43 @@ def generate_model_name(name):
     name = name.replace("\"", "_")
     name = name.replace("(", "_")
     name = name.replace(")", "_")
+    if epochs is not None:
+        name += "_e" + str(epochs)
     return name
+
+
+def save_model(model, name, device):
+    if not is_save_model:
+        return
+    if device.type == 'cuda':
+        torch.save(model.module, 'models/' + name)
+    else:
+        torch.save(model, 'models/' + name)
+    print("Saved model", name)
+
+
+def get_inst(vals, n, fs=None, use_mean=False):
+    inst = vals[inst_length*n:inst_length*(n+1)]
+    if fs is not None:
+        inst *= np.sqrt(fs['all_var'])
+        if use_mean:
+            inst += fs['all_mean']
+    else:
+        assert(not use_mean)
+    return inst
+
+
+def get_inst_field(vals, n, i, fs=None, use_mean=False):
+    inst_field = vals[inst_length * n + i]
+    if fs is not None:
+        inst_field *= np.sqrt(fs['all_var'][i])
+        if use_mean:
+            inst_field += fs['all_mean'][i]
+    else:
+        assert(not use_mean)
+    inst_field = np.rint(inst_field)
+    return inst_field
+
+
+def get_inst_type(vals, n, fs=None, use_mean=False):
+    return get_inst_field(vals, n, 4, fs, use_mean)

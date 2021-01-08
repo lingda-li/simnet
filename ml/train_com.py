@@ -12,12 +12,14 @@ from sklearn import preprocessing
 np.random.seed(0)
 from models import *
 
-#epoch_num = 1
-epoch_num = 100
+
+epoch_num = 1
+#epoch_num = 100
 saved_model_name = sys.argv[1]
 data_set_name = sys.argv[2]
 batchnum = int(sys.argv[3])
-batchsize = 32 * 1024 * 2
+#batchsize = 32 * 1024 * 2
+batchsize = 8 * 1024 * 2
 print_threshold = 16
 out_fetch = False
 out_comp = False
@@ -63,7 +65,8 @@ y_test_cla_g = y_test_cla.to(device)
 loss = nn.MSELoss()
 loss_cla = nn.CrossEntropyLoss()
 #simnet = CNN3_F_P_COM(64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
-simnet = CNN3_F_P(22, 64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
+#simnet = CNN3_F_P(22, 64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
+simnet = Efficient1DNet.from_name('e1d-b0')
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
