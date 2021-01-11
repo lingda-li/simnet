@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from ptflops import get_model_complexity_info
 from cfg import context_length, inst_length, is_save_model
 
 
@@ -62,6 +63,9 @@ def generate_model_name(name, epochs=None):
     name = name.replace("\"", "_")
     name = name.replace("(", "_")
     name = name.replace(")", "_")
+    name = name.replace("[", "_")
+    name = name.replace("]", "_")
+    name = name.replace("=", "_")
     if epochs is not None:
         name += "_e" + str(epochs)
     return name
@@ -74,6 +78,13 @@ def save_model(model, name, device):
         torch.save(model.module, 'models/' + name)
     else:
         torch.save(model, 'models/' + name)
+    print("Saved model", name)
+
+
+def save_ts_model(model, name):
+    if not is_save_model:
+        return
+    model.save('models/' + name + '.pt')
     print("Saved model", name)
 
 
@@ -102,3 +113,10 @@ def get_inst_field(vals, n, i, fs=None, use_mean=False):
 
 def get_inst_type(vals, n, fs=None, use_mean=False):
     return get_inst_field(vals, n, 4, fs, use_mean)
+
+
+def profile_model(model):
+    macs, params = get_model_complexity_info(model, (context_length, inst_length), as_strings=True,
+                                             print_per_layer_stat=True, verbose=True)
+    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))

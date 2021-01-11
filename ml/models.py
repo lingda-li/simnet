@@ -3,11 +3,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from cfg import context_length, inst_length
-from enet import Efficient1DNet
+from enet import E1DNet
 
 class Fusion1dFC(nn.Module):
     def __init__(self, out):
-        super(Fusion1d, self).__init__()
+        super(Fusion1dFC, self).__init__()
         self.out = out
         self._fu0 = nn.Linear(inst_length, out, bias=False)
         #self._fu1 = nn.Linear(inst_length, out, bias=False)
@@ -33,7 +33,7 @@ class Fusion1dFC(nn.Module):
 
 class Fusion1d(nn.Module):
     def __init__(self, out):
-        super(Fusion1d2, self).__init__()
+        super(Fusion1d, self).__init__()
         self._conv = nn.Conv1d(in_channels=inst_length*2, out_channels=out, kernel_size=1, bias=False)
 
     def forward(self, x):
@@ -227,12 +227,10 @@ class CNN3_F_P(nn.Module):
         x = self.fc2(x)
         return x
 
-class CNN3_F_PP(nn.Module):
+class CNN3_F_PP_TS(nn.Module):
     def __init__(self, out, pc, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, f1):
-        super(CNN3_F_PP, self).__init__()
-        self.pc = pc
-        self._fu0 = nn.Linear(inst_length, pc, bias=False)
-        self._fu1 = nn.Linear(inst_length, pc, bias=False)
+        super(CNN3_F_PP_TS, self).__init__()
+        self._fu = Fusion1d(pc)
         self.conv1 = nn.Conv1d(in_channels=pc, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
         self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
         self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
@@ -248,12 +246,7 @@ class CNN3_F_PP(nn.Module):
         self.fc2 = nn.Linear(f1, out)
 
     def forward(self, x):
-        x = x.view(-1, context_length, inst_length)
-        x0 = self._fu0(x[:, 0, :])
-        y = x.new(x.size()[0], self.pc, context_length - 1)
-        for i in range(1, context_length):
-            y[:, :, i-1] = self._fu1(x[:, i, :]) + x0
-        x = F.relu(y)
+        x = self._fu(x)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))

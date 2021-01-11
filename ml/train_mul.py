@@ -73,7 +73,10 @@ for i in range(modelnum):
     cur_model = sys.argv[i + 2]
     model_name.append(generate_model_name(cur_model + " " + datetime.now().strftime("%m%d%y")))
     cur_model = eval(cur_model)
-    print("Model", i, ":", cur_model, flush=True)
+    print("Model", i, ":")
+    profile_model(cur_model)
+    cur_model = torch.jit.trace(cur_model, torch.rand(1, context_length * inst_length))
+    print(cur_model.code, flush=True)
     simnet.append(cur_model)
     if torch.cuda.device_count() > 1:
         simnet[i] = nn.DataParallel(simnet[i])
@@ -116,9 +119,10 @@ for e in range(epoch_num):
         test_values1[i].append(tloss_1)
         test_values2[i].append(tloss_2)
         print(i, ":", tloss_0, tloss_1, tloss_2)
-    if e % save_interval == 0 and e > 0:
+    if e % save_interval == save_interval - 1:
         for i in range(modelnum):
-            save_model(simnet[i], model_name[i], device)
+            #save_model(simnet[i], model_name[i], device)
+            save_ts_model(simnet[i], model_name[i])
 
 
 for i in range(modelnum):
@@ -134,4 +138,3 @@ for i in range(modelnum):
     print_arr(test_values1[i])
     print("Model", i, "testing loss 2:", end=' ')
     print_arr(test_values2[i])
-    save_model(simnet[i], model_name[i], device)
