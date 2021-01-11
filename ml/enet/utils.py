@@ -580,7 +580,7 @@ def calculate_1d_output_size(input_size, stride):
     return output_size
 
 
-def get_1d_model_params(model_name, override_params):
+def get_1d_model_params(model_name, bargs, override_params):
     """Get the block args and global params for a given model name.
 
     Args:
@@ -594,7 +594,7 @@ def get_1d_model_params(model_name, override_params):
         w, d, s, p = e1d_params(model_name)
         # note: all models have drop connect rate = 0.2
         blocks_args, global_params = e1d(
-            width_coefficient=w, depth_coefficient=d, dropout_rate=p, input_size=s)
+            width_coefficient=w, depth_coefficient=d, dropout_rate=p, input_size=s, bargs=bargs)
     else:
         raise NotImplementedError('model name is not pre-defined: {}'.format(model_name))
     if override_params:
@@ -656,7 +656,7 @@ def e1d_params(model_name):
     return params_dict[model_name]
 
 
-def e1d(width_coefficient=None, depth_coefficient=None, input_size=None,
+def e1d(width_coefficient=None, depth_coefficient=None, input_size=None, bargs=None,
         dropout_rate=0.2, drop_connect_rate=0.2, num_classes=22, include_top=True):
     """Create BlockArgs and GlobalParams for efficientnet model.
 
@@ -676,15 +676,19 @@ def e1d(width_coefficient=None, depth_coefficient=None, input_size=None,
 
     # Blocks args for the whole model(efficientnet-b0 by default)
     # It will be modified in the construction of EfficientNet Class according to model
-    blocks_args = [
-        'r1_k1_s1_e1_i512_o256_se0.25', # 110
-        'r2_k2_s2_e6_i256_o128_se0.25', # 55
-        'r2_k2_s2_e6_i128_o256_se0.25', # 28
-        #'r2_k2_s2_e6_i256_o512_se0.25', # 14
-        #'r2_k2_s2_e6_i512_o1024_se0.25', # 7
-        #'r2_k2_s2_e6_i1024_o2048_se0.25', # 4
-        #'r2_k2_s2_e6_i2048_o4096_se0.25', # 2
-    ]
+    if bargs is not None:
+        assert isinstance(bargs, list)
+        blocks_args = bargs
+    else:
+        blocks_args = [
+            'r1_k1_s1_e1_i512_o256_se0.25', # 110
+            'r2_k2_s2_e6_i256_o128_se0.25', # 55
+            'r2_k2_s2_e6_i128_o256_se0.25', # 28
+            #'r2_k2_s2_e6_i256_o512_se0.25', # 14
+            #'r2_k2_s2_e6_i512_o1024_se0.25', # 7
+            #'r2_k2_s2_e6_i1024_o2048_se0.25', # 4
+            #'r2_k2_s2_e6_i2048_o4096_se0.25', # 2
+        ]
     blocks_args = BlockDecoder.decode(blocks_args)
 
     global_params = GlobalParams(

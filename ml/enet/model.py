@@ -26,6 +26,26 @@ context_length = 111
 inst_length = 51
 
 
+class Fusion1d(nn.Module):
+    def __init__(self, out):
+        super(Fusion1d, self).__init__()
+        self._conv = nn.Conv1d(in_channels=inst_length*2, out_channels=out, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        #copies = x[:,:,0].unsqueeze(-1)
+        copies = x[:,:,0:1]
+        #copies = copies.repeat(1, 1, context_length - 1)
+        copies = copies.expand(-1, -1, context_length - 1)
+        #test = torch.cat((x,copies),-2)
+        x = torch.cat((x[:,:,1:context_length],copies),1)
+        #print(x.size())
+        x = self._conv(x)
+        x = F.relu(x)
+        return x
+
+
 class Conv1DBlock(nn.Module):
     """Mobile Inverted 1D Residual Bottleneck Block.
 
@@ -125,7 +145,7 @@ class Conv1DBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-class Efficient1DNet(nn.Module):
+class E1DNet(nn.Module):
     """EfficientNet model.
        Most easily loaded with the .from_name or .from_pretrained methods.
 
@@ -166,7 +186,9 @@ class Efficient1DNet(nn.Module):
         out_channels = round_filters(512, self._global_params)  # number of output channels
         #Conv1d = get_same_padding_conv1d(input_size=input_size)
         #self._conv_stem = Conv1d(in_channels, out_channels, kernel_size=2, stride=2, bias=False)
-        self._conv_stem = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
+        #self._conv_stem = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
+        self._conv_stem = Fusion1d(out_channels)
+        input_size -= 1
         self._bn0 = nn.BatchNorm1d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
         # Build blocks
@@ -200,6 +222,9 @@ class Efficient1DNet(nn.Module):
         self._dropout = nn.Dropout(self._global_params.dropout_rate)
         self._fc = nn.Linear(out_channels, self._global_params.num_classes)
         self._swish = MemoryEfficientSwish()
+
+        # Set swish for TorchScript.
+        self.set_swish(memory_efficient=False)
 
     def set_swish(self, memory_efficient=True):
         """Sets swish function as memory efficient (for training) or standard (for export).
@@ -235,7 +260,7 @@ class Efficient1DNet(nn.Module):
                 >>> print(endpoints['reduction_5'].shape)  # torch.Size([1, 1280, 7, 7])
         """
         endpoints = dict()
-        inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
+        #inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
 
         # Stem
         x = self._swish(self._bn0(self._conv_stem(inputs)))
@@ -267,11 +292,11 @@ class Efficient1DNet(nn.Module):
             Output of the final convolution
             layer in the efficientnet model.
         """
-        inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
+        #inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
         # Stem
-        #x = self._swish(self._bn0(self._conv_stem(inputs)))
-        x = self._conv_stem(inputs)
-        x = self._bn0(x)
+        x = self._swish(self._bn0(self._conv_stem(inputs)))
+        #x = self._conv_stem(inputs)
+        #x = self._bn0(x)
 
         # Blocks
         for idx, block in enumerate(self._blocks):
@@ -306,6 +331,29 @@ class Efficient1DNet(nn.Module):
         return x
 
     @classmethod
+    def from_input(cls, model_name, bargs=None, **override_params):
+        """create an efficientnet model according to name.
+
+        Args:
+            model_name (str): Name for efficientnet.
+            in_channels (int): Input data's channel number.
+            override_params (other key word params):
+                Params to override model's global_params.
+                Optional key:
+                    'width_coefficient', 'depth_coefficient',
+                    'image_size', 'dropout_rate',
+                    'num_classes', 'batch_norm_momentum',
+                    'batch_norm_epsilon', 'drop_connect_rate',
+                    'depth_divisor', 'min_depth'
+
+        Returns:
+            An efficientnet model.
+        """
+        blocks_args, global_params = get_1d_model_params(model_name, bargs, override_params)
+        model = cls(blocks_args, global_params)
+        return model
+
+    @classmethod
     def from_name(cls, model_name, in_channels=3, **override_params):
         """create an efficientnet model according to name.
 
@@ -324,7 +372,7 @@ class Efficient1DNet(nn.Module):
         Returns:
             An efficientnet model.
         """
-        blocks_args, global_params = get_1d_model_params(model_name, override_params)
+        blocks_args, global_params = get_1d_model_params(model_name, None, override_params)
         model = cls(blocks_args, global_params)
         return model
 
