@@ -5,21 +5,49 @@ import torch.nn.functional as F
 from cfg import context_length, inst_length
 from enet import Efficient1DNet
 
-class Fusion1d(nn.Module):
+class Fusion1dFC(nn.Module):
     def __init__(self, out):
         super(Fusion1d, self).__init__()
         self.out = out
         self._fu0 = nn.Linear(inst_length, out, bias=False)
-        self._fu1 = nn.Linear(inst_length, out, bias=False)
+        #self._fu1 = nn.Linear(inst_length, out, bias=False)
+        self._conv = nn.Conv1d(in_channels=inst_length,
+                               out_channels=out,
+                               kernel_size=1, bias=False)
 
     def forward(self, x):
         x = x.view(-1, context_length, inst_length)
         x0 = self._fu0(x[:, 0, :])
-        y = x.new(x.size(0), self.out, context_length - 1)
-        print(y.size())
-        for i in range(1, context_length):
-            y[:, :, i-1] = self._fu1(x[:, i, :]) + x0
-        x = F.relu(y)
+        x0 = x0.view(-1, self.out, 1)
+        x0 = x0.expand(-1, -1, context_length - 1)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        x = self._conv(x[:, :, 1:context_length])
+        x += x0
+        #y = x.new(x.size(0), self.out, context_length - 1)
+        ##print(y.size())
+        #for i in range(1, context_length):
+        #    y[:, :, i-1] = self._fu1(x[:, i, :]) + x0
+        #x = F.relu(y)
+        x = F.relu(x)
+        return x
+
+class Fusion1d(nn.Module):
+    def __init__(self, out):
+        super(Fusion1d2, self).__init__()
+        self._conv = nn.Conv1d(in_channels=inst_length*2, out_channels=out, kernel_size=1, bias=False)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        #copies = x[:,:,0].unsqueeze(-1)
+        copies = x[:,:,0:1]
+        #copies = copies.repeat(1, 1, context_length - 1)
+        copies = copies.expand(-1, -1, context_length - 1)
+        #test = torch.cat((x,copies),-2)
+        x = torch.cat((x[:,:,1:context_length],copies),1)
+        #print(x.size())
+        x = self._conv(x)
+        x = F.relu(x)
         return x
 
 class FC2(nn.Module):
