@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
   }
 
   string outputName = argv[1];
-  outputName.replace(outputName.end()-3, outputName.end(), "q");
+  outputName.replace(outputName.end()-3, outputName.end(), "qq");
   cerr << "Write to " << outputName << ".\n";
   ofstream output(outputName);
   if (!output.is_open()) {
@@ -56,7 +56,9 @@ int main(int argc, char *argv[]) {
       cerr << ".";
   }
 
-  cerr << "Finish at " << curTick << " with " << num << " instructions.\n";
+  cerr << "\nFinish at " << curTick << " with " << num << " instructions.\n";
+  cerr << "Max rob and sq sizes are " << q->max_rob_size << " "
+       << q->max_sq_size;
   trace.close();
   sqtrace.close();
   output.close();

@@ -12,7 +12,7 @@ args = parser.parse_args()
 size = args.size
 outputp = args.fname[0]
 if len(args.fname) > 1:
-    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.q")
+    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.qq")
 outputp += "u"
 
 lines = SortedList()
@@ -32,14 +32,14 @@ def dump():
     outputn = outputp
     if idx > 0:
         outputn += str(idx)
-    print("Write to %s with %d unique out of %d total" % (outputn, nuniqs, nlines))
+    print("Write to %s with %d unique out of %d total" % (outputn, nuniqs, nlines), flush=True)
     with open(outputn, 'w') as f:
         for item in newlines:
             f.write("%s\n" % item)
 
 for i in range(len(args.fname)):
     fname = args.fname[i]
-    print("read ", fname)
+    print("read ", fname, flush=True)
     first = False
     if len(args.fname) == 1:
         first = True
@@ -58,7 +58,7 @@ for i in range(len(args.fname)):
                         dump()
                         idx += 1
                 if (nlines % 1000000) == 0:
-                    print("So far have %d unique out of %d total" % (nuniqs, nlines))
+                    print("So far have %d unique out of %d total" % (nuniqs, nlines), flush=True)
 
 if size == 0 or nuniqs % size > 0:
     dump()
