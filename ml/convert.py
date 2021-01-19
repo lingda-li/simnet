@@ -6,17 +6,10 @@ import torch.nn.functional as F
 import sys
 from itertools import product
 import pickle
-np.random.seed(0)
 import glob
 import os
-
-import sys
-#context_length = 96
-#inst_length = 10
-#context_length = 93
-#inst_length = 17
-context_length = 94
-inst_length = 39
+from models import context_length, inst_length
+np.random.seed(0)
 
 if len(sys.argv) < 3:
     print("Usage: %s input_dir output_dir" % sys.argv[0])

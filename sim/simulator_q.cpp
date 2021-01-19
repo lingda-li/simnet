@@ -9,6 +9,7 @@
 
 using namespace std;
 
+//#define COMBINED
 //#define CLASSIFY
 //#define DEBUG
 //#define VERBOSE
@@ -274,6 +275,10 @@ int main(int argc, char *argv[]) {
   bool eof = false;
   struct ROB *rob = new ROB;
   Tick nextFetchTick = 0;
+  long totalFetchDiff = 0;
+  long totalRetireDiff = 0;
+  long totalAbsFetchDiff = 0;
+  long totalAbsRetireDiff = 0;
   Tick Case0 = 0;
   Tick Case1 = 0;
   Tick Case2 = 0;
@@ -322,8 +327,17 @@ int main(int argc, char *argv[]) {
       }
       rob->make_input_data(inputPtr, curTick);
 #ifdef DUMP_ML_INPUT
-      for (int i = 0; i < ML_SIZE; i++)
-        cout << inputPtr[i] * factor[i % TD_SIZE] + mean[i % TD_SIZE] << " ";
+      cout << newInst->trueFetchClass << " " << newInst->trueFetchTick << " " << newInst->trueCompleteClass << " " << newInst->trueCompleteTick << " ";
+      for (int i = 4; i < ML_SIZE; i++) {
+        if (i % TD_SIZE == 0 && inputPtr[i + 4] == 0)
+          break;
+        double tmp = inputPtr[i] * factor[i % TD_SIZE] + mean[i % TD_SIZE];
+        int inttmp = round(tmp);
+        if (tmp - inttmp > 0.001 || tmp - inttmp < -0.001)
+          cout << tmp << " ";
+        else
+          cout << inttmp << " ";
+      }
       cout << endl;
       //cout << input << "\n";
 #endif
@@ -339,16 +353,27 @@ int main(int argc, char *argv[]) {
 #endif
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       int f_class, c_class;
       for (int i = 0; i < 2; i++) {
+#if defined(CLASSIFY)
         float max = cla_output[0][10*i].item<float>();
+#else
+        float max = output[0][10*i+2].item<float>();
+#endif
         int idx = 0;
         for (int j = 1; j < 10; j++) {
+#if defined(CLASSIFY)
           if (max < cla_output[0][10*i+j].item<float>()) {
             max = cla_output[0][10*i+j].item<float>();
             idx = j;
           }
+#else
+          if (max < output[0][10*i+2+j].item<float>()) {
+            max = output[0][10*i+2+j].item<float>();
+            idx = j;
+          }
+#endif
         }
         if (i == 0)
           f_class = idx;
@@ -364,7 +389,7 @@ int main(int argc, char *argv[]) {
         int_fetch_lat = 0;
       if (int_finish_lat < MIN_COMP_LAT)
         int_finish_lat = MIN_COMP_LAT;
-#ifdef CLASSIFY
+#if defined(CLASSIFY) || defined(COMBINED)
       if (f_class <= 8)
         int_fetch_lat = f_class;
       if (c_class <= 8)
@@ -373,9 +398,13 @@ int main(int argc, char *argv[]) {
       //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
       //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
 #endif
+      totalFetchDiff += (long)newInst->trueFetchTick - int_fetch_lat;
+      totalRetireDiff += (long)newInst->trueCompleteTick - int_finish_lat;
+      totalAbsFetchDiff += abs((long)newInst->trueFetchTick - int_fetch_lat);
+      totalAbsRetireDiff += abs((long)newInst->trueCompleteTick - int_finish_lat);
 #ifdef DUMP_ML_INPUT
-      int_finish_lat = newInst->trueCompleteTick;
       int_fetch_lat = newInst->trueFetchTick;
+      int_finish_lat = newInst->trueCompleteTick;
 #endif
       newInst->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
       newInst->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
@@ -429,6 +458,8 @@ int main(int argc, char *argv[]) {
 
   trace.close();
   aux_trace.close();
+  time_t now = time(0);
+  cout << "Finish at " << ctime(&now);
 #ifdef RUN_TRUTH
   cout << "Truth" << "\n";
 #endif
@@ -437,12 +468,14 @@ int main(int argc, char *argv[]) {
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num << "\n";
   cout << "Measured Time: " << measured_time / inst_num << "\n";
+  cout << "Fetch Diff: " << totalFetchDiff << " (" << (double)totalFetchDiff / inst_num << " per inst), Absolute Diff: " << totalAbsFetchDiff << " (" << (double)totalAbsFetchDiff / inst_num << " per inst)\n";
+  cout << "Retire Diff: " << totalRetireDiff << " (" << (double)totalRetireDiff / inst_num << " per inst, Absolute Diff: " << totalAbsRetireDiff << " (" << (double)totalAbsRetireDiff / inst_num << " per inst)\n";
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
-  cout << "Trace: " << argv[1] << "\n";
+  cout << "Trace: " << argv[1] << " " << argv[2] << "\n";
 #ifdef CLASSIFY
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
 #else
-  cout << "Lat Model: " << argv[3] << "\n";
+  cout << "Model: " << argv[3] << "\n";
 #endif
   return 0;
 }

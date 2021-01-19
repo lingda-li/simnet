@@ -56,7 +56,8 @@ x_test_g = x_test.to(device)
 y_test_g = y_test.to(device)
 
 loss = nn.CrossEntropyLoss()
-simnet = CNN3_F(20, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 400)
+#simnet = CNN3_F_P(20, 64, 2, 64, 2, 0, 2, 128, 2, 1, 2, 256, 2, 0, 400)
+simnet = CNN7_F(20, 2, 64, 2, 1, 2, 128, 2, 0, 2, 256, 2, 0, 2, 512, 2, 0, 2, 1024, 2, 1, 2, 2048, 2, 0, 2, 4096, 2, 0, 400)
 if torch.cuda.device_count() > 1:
     simnet = nn.DataParallel(simnet)
 simnet.to(device)
@@ -81,8 +82,10 @@ for i in range(epoch_num):
         value1 = loss(output[:,10:20],y[:,1:2].view(-1))
         values.append(value1.cpu().data)
         optimizer.zero_grad()
-        value0.backward(retain_graph=True)
-        value1.backward()
+        #value0.backward(retain_graph=True)
+        #value1.backward()
+        value = value0 + value1
+        value.backward()
         optimizer.step()
 
     output = simnet(x_test_g)
