@@ -13,6 +13,8 @@ struct QUEUE {
   int head = 0;
   int rob_head = 0;
   int tail = 0;
+  unsigned max_rob_size = 0;
+  unsigned max_sq_size = 0;
   int inc(int input) {
     if (input == QSIZE - 1)
       return 0;
@@ -50,20 +52,29 @@ struct QUEUE {
       retire_sq_head();
   }
   void dump(Tick tick, ostream &out = cout) {
+    int rob_size = 0;
+    int sq_size = 0;
     for (int i = dec(tail); i != dec(rob_head); i = dec(i)) {
       insts[i].dump(tick, i == dec(tail), insts[dec(tail)].isAddr,
                     insts[dec(tail)].addr, insts[dec(tail)].addrEnd,
                     insts[dec(tail)].pc, insts[dec(tail)].iwalkAddr,
                     insts[dec(tail)].dwalkAddr, out);
+      rob_size++;
     }
     for (int i = dec(rob_head); i != dec(head); i = dec(i)) {
-      if (insts[i].inSQ())
+      if (insts[i].inSQ()) {
         insts[i].dump(tick, i == dec(tail), insts[dec(tail)].isAddr,
                       insts[dec(tail)].addr, insts[dec(tail)].addrEnd,
                       insts[dec(tail)].pc, insts[dec(tail)].iwalkAddr,
                       insts[dec(tail)].dwalkAddr, out);
+        sq_size++;
+      }
     }
     out << "\n";
+    if (rob_size > max_rob_size)
+      max_rob_size = rob_size;
+    if (sq_size > max_sq_size)
+      max_sq_size = sq_size;
   }
 };
 

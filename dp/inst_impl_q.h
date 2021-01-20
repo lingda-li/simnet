@@ -217,17 +217,19 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
     outC = outLat - MINOUTLAT;
   else
     outC = 9;
-  out << fetchC << " " << fetchLat << " ";
-  out << outC << " " << outLat << " ";
+  //out << fetchC << " " << fetchLat << " ";
+  //out << outC << " " << outLat << " ";
+  out << fetchLat << " " << completeTick << " " << storeTick << " ";
 
 #ifdef COMBINE_OP
-  out << op + 15 << " " << isMicroOp << " " << isMisPredict << " ";
+  out << op + 15 << " " << inSQ() << " " << isMicroOp << " " << isMisPredict
+      << " ";
 #else
-  out << op + 1 << " " << isMicroOp << " " << isMisPredict << " " << isCondCtrl
-       << " " << isUncondCtrl << " " << isDirectCtrl << " " << isSquashAfter
-       << " " << isSerializeAfter << " " << isSerializeBefore << " " << isAtomic
-       << " " << isStoreConditional << " " << isMemBar << " " << isQuiesce
-       << " " << isNonSpeculative << " ";
+  out << op + 1 << " " << inSQ() << " " << isMicroOp << " " << isMisPredict
+      << " " << isCondCtrl << " " << isUncondCtrl << " " << isDirectCtrl << " "
+      << isSquashAfter << " " << isSerializeAfter << " " << isSerializeBefore
+      << " " << isAtomic << " " << isStoreConditional << " " << isMemBar << " "
+      << isQuiesce << " " << isNonSpeculative << " ";
 #endif
   for (int i = 0; i < srcNum; i++)
     out << getReg(srcClass[i], srcIndex[i]) << " ";
@@ -245,8 +247,8 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
     out << "1 ";
   else
     out << "0 ";
-  // PC offset
-  out << pc % 64 << " ";
+  //// PC offset
+  //out << pc % 64 << " ";
   // Instruction walk depth.
   for (int i = 0; i < 3; i++)
     out << iwalkDepth[i] + 1 << " ";
