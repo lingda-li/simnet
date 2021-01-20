@@ -61,10 +61,11 @@ for i in range(len(args.fname)):
                 assert len(vals) % inst_length == 0
                 assert len(vals) <= w
                 all_feats[nfilled, 0:len(vals)] = np.array(vals)
-                inst_num = int(len(vals) / inst_length)
-                for j in range(inst_num):
-                    all_feats[nfilled, inst_length*j:inst_length*(j+1)] /= all_fac
                 all_feats[nfilled, len(vals):w] = 0
+                if args.stats != "":
+                    inst_num = int(len(vals) / inst_length)
+                    for j in range(inst_num):
+                        all_feats[nfilled, inst_length*j:inst_length*(j+1)] /= all_fac
             except:
                 print("Bad content: ", len(vals), vals)
                 bad_content += 1
