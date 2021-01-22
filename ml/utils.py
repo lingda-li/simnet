@@ -1,10 +1,12 @@
 import numpy as np
 import torch
+from datetime import datetime
 from ptflops import get_model_complexity_info
-from cfg import context_length, inst_length, is_save_model
+from cfg import context_length, inst_length
+from models import *
 
 
-def get_data(arr, s, low, high, device):
+def get_data(arr, s, low, high, device, to_tensor=True):
     x = np.copy(arr[low:high,])
     y1 = np.copy(x[:,1:2])
     y2 = np.copy(x[:,3:4])
@@ -17,13 +19,32 @@ def get_data(arr, s, low, high, device):
     y_cla = np.rint(y_cla)
     #assert(y_cla.all() >= 0 and y_cla.all() <= 9)
     x[:,0:4] = 0
-    x = torch.from_numpy(x.astype('f'))
-    y = torch.from_numpy(y.astype('f'))
-    y_cla = torch.from_numpy(y_cla.astype(int))
-    x = x.to(device)
-    y = y.to(device)
-    y_cla = y_cla.to(device)
+    if to_tensor:
+        x = torch.from_numpy(x.astype('f'))
+        y = torch.from_numpy(y.astype('f'))
+        y_cla = torch.from_numpy(y_cla.astype(int))
+    if device is not None:
+        x = x.to(device)
+        y = y.to(device)
+        y_cla = y_cla.to(device)
     return x, y, y_cla
+
+
+def init_model(model):
+    if ".pt" in model:
+        name = generate_model_name(model.replace(".pt", "") + "_" + datetime.now().strftime("%m%d%y"))
+        model = torch.jit.load('models/' + model, map_location='cpu')
+        #print(model.training)
+    else:
+        name = generate_model_name(model + "_" + datetime.now().strftime("%m%d%y"))
+        model = eval(model)
+        profile_model(model)
+        #print(model.training)
+        #model = torch.jit.trace(model, torch.rand(1, context_length * inst_length))
+        #model.train()
+        #model.eval()
+    #print(model.code, flush=True)
+    return model, name
 
 
 def train_com(net, x, y, y_cla, loss0, loss1, loss2, loss, loss_cla, optimizer):
@@ -55,7 +76,8 @@ def print_arr(arr):
     print(', '.join('{:0.5f}'.format(i) for i in arr))
 
 
-def generate_model_name(name, epochs=None):
+def generate_model_name(name, epoch=None):
+    name = name.replace(".pt", "")
     name = name.replace(" ", "_")
     name = name.replace(",", "_")
     name = name.replace(".", "_")
@@ -65,27 +87,29 @@ def generate_model_name(name, epochs=None):
     name = name.replace(")", "_")
     name = name.replace("[", "_")
     name = name.replace("]", "_")
+    name = name.replace("-", "_")
     name = name.replace("=", "_")
-    if epochs is not None:
-        name += "_e" + str(epochs)
+    if epoch is not None:
+        name += "_e" + str(epoch)
+    name += "_" + datetime.now().strftime("%m%d%y")
     return name
 
 
-def save_model(model, name, device):
-    if not is_save_model:
-        return
-    if device.type == 'cuda':
-        torch.save(model.module, 'models/' + name)
+def save_model(model, name):
+    name = 'models/' + generate_model_name(name) + '.pt'
+    if torch.cuda.device_count() > 1:
+        torch.save(model.module, name)
     else:
-        torch.save(model, 'models/' + name)
+        torch.save(model, name)
     print("Saved model", name)
 
 
 def save_ts_model(model, name):
-    if not is_save_model:
-        return
-    model.save('models/' + name + '.pt')
-    print("Saved model", name)
+    if torch.cuda.device_count() > 1:
+        model.module.save('models/' + name + '.pt')
+    else:
+        model.save('models/' + name + '.pt')
+    print("Saved model", name + '.pt')
 
 
 def get_inst(vals, n, fs=None, use_mean=False):
@@ -116,6 +140,7 @@ def get_inst_type(vals, n, fs=None, use_mean=False):
 
 
 def profile_model(model):
+    print("Model info:")
     macs, params = get_model_complexity_info(model, (context_length, inst_length), as_strings=True,
                                              print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
