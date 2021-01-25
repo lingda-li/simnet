@@ -49,10 +49,10 @@ def train(args, model, device, train_loader, optimizer, epoch, rank):
             print('.', flush=True, end='')
         if args.dry_run:
             break
-    total_lat_loss /= len(train_loader.dataset) / 65536
-    total_cla_loss1 /= len(train_loader.dataset) / 65536
-    total_cla_loss2 /= len(train_loader.dataset) / 65536
-    total_cla_loss3 /= len(train_loader.dataset) / 65536
+    total_lat_loss /= len(train_loader) * train_loader.batch_size / 65536
+    total_cla_loss1 /= len(train_loader) * train_loader.batch_size / 65536
+    total_cla_loss2 /= len(train_loader) * train_loader.batch_size / 65536
+    total_cla_loss3 /= len(train_loader) * train_loader.batch_size / 65536
     if rank == 0:
         print('', flush=True)
     if args.distributed:
@@ -75,10 +75,10 @@ def test(model, device, test_loader):
             total_cla_loss1 += cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0]).item()
             total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
             total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
-    total_lat_loss /= len(test_loader.dataset) / 65536
-    total_cla_loss1 /= len(test_loader.dataset) / 65536
-    total_cla_loss2 /= len(test_loader.dataset) / 65536
-    total_cla_loss3 /= len(test_loader.dataset) / 65536
+    total_lat_loss /= len(test_loader) * test_loader.batch_size / 65536
+    total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
+    total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
+    total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
     print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
         total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
 
