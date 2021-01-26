@@ -110,6 +110,15 @@ def load_checkpoint(name, model, training=False, optimizer=None):
     print("Loaded checkpoint", name)
 
 
+def save_ts_model(name, model):
+    assert 'checkpoints/' in name
+    name = name.replace('checkpoints/', 'models/')
+    model.eval()
+    traced_script_module = torch.jit.trace(model, torch.rand(1, context_length * inst_length))
+    traced_script_module.save(name)
+    print("Saved model", name)
+
+
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='SIMNET Testing')
@@ -144,6 +153,7 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     model.to(device)
     test(args, model, device, test_loader)
+    save_ts_model(args.checkpoints, model)
 
 
 if __name__ == '__main__':

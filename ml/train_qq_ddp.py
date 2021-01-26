@@ -55,10 +55,11 @@ def train(args, model, device, train_loader, optimizer, epoch, rank):
     total_cla_loss3 /= len(train_loader) * train_loader.batch_size / 65536
     if rank == 0:
         print('', flush=True)
+    end_t = time.time()
     if args.distributed:
         dist.barrier()
     print('Train Epoch: {} \tLat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tTime: {:.1f}'.format(
-        epoch, total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3, time.time() - start_t), flush=True)
+        epoch, total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3, end_t - start_t), flush=True)
 
 
 def test(model, device, test_loader):
