@@ -23,26 +23,21 @@ from .utils import (
 )
 
 context_length = 111
-inst_length = 51
+#inst_length = 51
+inst_length = 50
 
 
 class Fusion1d(nn.Module):
     def __init__(self, out):
         super(Fusion1d, self).__init__()
         self._conv = nn.Conv1d(in_channels=inst_length*2, out_channels=out, kernel_size=1, bias=False)
+        self._cxt_size = context_length
 
     def forward(self, x):
-        #x = x.view(-1, inst_length, context_length)
-        x = x.view(-1, context_length, inst_length).transpose(2,1)
-        #copies = x[:,:,0].unsqueeze(-1)
         copies = x[:,:,0:1]
-        #copies = copies.repeat(1, 1, context_length - 1)
-        copies = copies.expand(-1, -1, context_length - 1)
-        #test = torch.cat((x,copies),-2)
-        x = torch.cat((x[:,:,1:context_length],copies),1)
-        #print(x.size())
+        copies = copies.expand(-1, -1, self._cxt_size - 1)
+        x = torch.cat((x[:,:,1:self._cxt_size],copies),1)
         x = self._conv(x)
-        x = F.relu(x)
         return x
 
 
@@ -260,7 +255,7 @@ class E1DNet(nn.Module):
                 >>> print(endpoints['reduction_5'].shape)  # torch.Size([1, 1280, 7, 7])
         """
         endpoints = dict()
-        #inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
+        inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
 
         # Stem
         x = self._swish(self._bn0(self._conv_stem(inputs)))
@@ -292,7 +287,7 @@ class E1DNet(nn.Module):
             Output of the final convolution
             layer in the efficientnet model.
         """
-        #inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
+        inputs = inputs.view(-1, context_length, inst_length).transpose(2,1)
         # Stem
         x = self._swish(self._bn0(self._conv_stem(inputs)))
         #x = self._conv_stem(inputs)
