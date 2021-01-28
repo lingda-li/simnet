@@ -11,9 +11,9 @@ using namespace std;
 
 //#define COMBINED
 //#define CLASSIFY
-//#define DEBUG
+#define DEBUG
 //#define VERBOSE
-//#define RUN_TRUTH
+#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
@@ -60,7 +60,7 @@ struct Inst {
   Addr iwalkAddr[3];
   Addr dwalkAddr[3];
   int inSQ() { return train_data[4]; }
-  void init(inst &copy) {
+  void init(Inst &copy) {
     std::copy(copy.train_data, copy.train_data + TD_SIZE, train_data);
     inTick = copy.inTick;
     completeTick = copy.completeTick;
@@ -82,7 +82,7 @@ struct Inst {
       return false;
     }
     assert(trueCompleteTick >= MIN_COMP_LAT);
-    assert(trueStoreTick >= MIN_ST_LAT);
+    assert(trueStoreTick == 0 || trueStoreTick >= MIN_ST_LAT);
     for (int i = 3; i < TD_SIZE; i++) {
       trace >> train_data[i];
     }
@@ -104,10 +104,10 @@ struct Inst {
 
 struct Queue {
   Inst *insts;
-  unsigned size;
+  int size;
   int head = 0;
   int tail = 0;
-  Queue(unsigned size) {
+  Queue(int size) {
     size = size;
     insts = new Inst[size + 1];
   }
@@ -162,7 +162,7 @@ struct Queue {
   }
   Inst &tail_inst() { return insts[dec(tail)]; }
 
-  int make_input_data(float *context, inst &new_inst, bool is_rob, Tick tick) {
+  int make_input_data(float *context, Inst &new_inst, bool is_rob, Tick tick) {
     Addr pc = new_inst.pc;
     int isAddr = new_inst.isAddr;
     Addr addr = new_inst.addr;
@@ -341,8 +341,8 @@ int main(int argc, char *argv[]) {
       if (curTick != lastFetchTick) {
         rob->update_fetch_cycle(curTick - lastFetchTick);
       }
-      int rob_num = rob->make_input_data(inputPtr, newInst, true, curTick);
-      int sq_num = sq->make_input_data(inputPtr + rob_num * TD_SIZE, newInst, false, curTick);
+      int rob_num = rob->make_input_data(inputPtr, *newInst, true, curTick);
+      int sq_num = sq->make_input_data(inputPtr + rob_num * TD_SIZE, *newInst, false, curTick);
       int num = rob_num + sq_num;
       if (num < CONTEXTSIZE)
         std::copy(default_val, default_val + (CONTEXTSIZE - num) * TD_SIZE, inputPtr + num * TD_SIZE);
@@ -463,7 +463,7 @@ int main(int argc, char *argv[]) {
     } else if (rob->is_full()) {
       // Fast forward curTick to retire instructions.
       if (curTick == rob->getHead()->completeTick) {
-        assert(curTick < sq->getHead()->storeTick);
+        assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
         curTick = sq->getHead()->storeTick;
         Case3++;
       } else {
