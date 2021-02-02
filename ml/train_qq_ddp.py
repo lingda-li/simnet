@@ -97,6 +97,24 @@ def save_checkpoint(name, model, optimizer, epoch):
     print("Saved checkpoint", name)
 
 
+def load_checkpoint(rank, name, model, optimizer, device):
+    assert 'checkpoints/' in name
+    cp = torch.load(name, map_location='cpu')
+    if torch.cuda.device_count() > 1:
+        model.module.load_state_dict(cp['model_state_dict'])
+    else:
+        model.load_state_dict(cp['model_state_dict'])
+    optimizer.load_state_dict(cp['optimizer_state_dict'])
+    #for state in optimizer.state.values():
+    #    for k, v in state.items():
+    #        if torch.is_tensor(v):
+    #            state[k] = v.to(device)
+    start_epoch = cp['epoch']
+    if rank == 0:
+        print("Loaded checkpoint", name)
+    return start_epoch + 1
+
+
 def main_rank(rank, args):
     if args.distributed:
         # create default process group
@@ -123,7 +141,6 @@ def main_rank(rank, args):
         train_loader = torch.utils.data.DataLoader(dataset1, **kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **kwargs)
 
-    assert len(args.models) == 1
     model = eval(args.models[0])
     if rank == 0:
         profile_model(model)
@@ -137,12 +154,15 @@ def main_rank(rank, args):
         model = nn.DataParallel(model).to(device)
     else:
         model.to(device)
-
     optimizer = optim.Adam(model.parameters())
+    start_epoch = 1
+    if len(args.models) == 2:
+        start_epoch = load_checkpoint(rank, args.models[1], model, optimizer, device)
+
     #scheduler = StepLR(optimizer, step_size=1)
     if args.distributed:
         dist.barrier()
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, args.epochs + 1):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         train(args, model, device, train_loader, optimizer, epoch, rank)
@@ -189,7 +209,7 @@ def main():
     if args.distributed:
         args.world_size = args.gpus * args.nodes
         os.environ['MASTER_ADDR'] = 'localhost'
-        os.environ['MASTER_PORT'] = '12355'
+        os.environ['MASTER_PORT'] = '12356'
         mp.spawn(main_rank, args=(args,), nprocs=args.gpus, join=True)
     else:
         main_rank(0, args)
