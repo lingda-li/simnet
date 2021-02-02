@@ -300,6 +300,7 @@ int main(int argc, char *argv[]) {
   Tick Case2 = 0;
   Tick Case3 = 0;
   Tick Case4 = 0;
+  Tick Case5 = 0;
 
   struct timeval start, end, total_start, total_end;
   gettimeofday(&total_start, NULL);
@@ -460,18 +461,23 @@ int main(int argc, char *argv[]) {
       curTick = nextFetchTick;
       Case0++;
     } else if (rob->is_full()) {
-      // Fast forward curTick to retire instructions.
       if (curTick == rob->getHead()->completeTick) {
-        assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
-        curTick = sq->getHead()->storeTick;
-        Case3++;
+        if (fetched) {
+          curTick++;
+          Case4++;
+        } else {
+          assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
+          curTick = sq->getHead()->storeTick;
+          Case3++;
+        }
       } else {
+        // Fast forward curTick to retire instructions.
         curTick = rob->getHead()->completeTick;
         Case2++;
       }
     } else {
       curTick++;
-      Case4++;
+      Case5++;
     }
     int_fetch_lat = 0;
   }
@@ -493,7 +499,7 @@ int main(int argc, char *argv[]) {
   cout << "Fetch Diff: " << totalFetchDiff << " (" << (double)totalFetchDiff / inst_num << " per inst), Absolute Diff: " << totalAbsFetchDiff << " (" << (double)totalAbsFetchDiff / inst_num << " per inst)\n";
   cout << "Complete Diff: " << totalCompleteDiff << " (" << (double)totalCompleteDiff / inst_num << " per inst, Absolute Diff: " << totalAbsCompleteDiff << " (" << (double)totalAbsCompleteDiff / inst_num << " per inst)\n";
   cout << "Store Diff: " << totalStoreDiff << " (" << (double)totalStoreDiff / inst_num << " per inst, Absolute Diff: " << totalAbsStoreDiff << " (" << (double)totalAbsStoreDiff / inst_num << " per inst)\n";
-  cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << "\n";
+  cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
   cout << "Trace: " << argv[1] << " " << argv[2] << "\n";
 #ifdef CLASSIFY
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
