@@ -11,9 +11,9 @@ using namespace std;
 
 //#define COMBINED
 //#define CLASSIFY
-#define DEBUG
+//#define DEBUG
 //#define VERBOSE
-#define RUN_TRUTH
+//#define RUN_TRUTH
 //#define DUMP_ML_INPUT
 #define NO_MEAN
 #define GPU
@@ -21,9 +21,9 @@ using namespace std;
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define TD_SIZE 50
-#define CONTEXTSIZE 111
 #define ROBSIZE 94
 #define SQSIZE 17
+#define CONTEXTSIZE (ROBSIZE + SQSIZE)
 #define TICK_STEP 500.0
 #define FETCH_BANDWIDTH 3
 #define RETIRE_BANDWIDTH 4
@@ -107,8 +107,8 @@ struct Queue {
   int size;
   int head = 0;
   int tail = 0;
-  Queue(int size) {
-    size = size;
+  Queue(int init_size) {
+    size = init_size;
     insts = new Inst[size + 1];
   }
   int inc(int input) {
@@ -141,8 +141,8 @@ struct Queue {
   int retire_until(Tick tick, Queue *sq = nullptr) {
     int retired = 0;
     if (sq) {
-      while (!is_empty() && insts[head].completeTick <= tick) {
-        //     retired < RETIRE_BANDWIDTH) ??
+      while (!is_empty() && insts[head].completeTick <= tick &&
+             retired < RETIRE_BANDWIDTH) {
         if (insts[head].inSQ()) {
           if (sq->is_full())
             break;
@@ -305,15 +305,15 @@ int main(int argc, char *argv[]) {
   gettimeofday(&total_start, NULL);
   while(!eof || !rob->is_empty()) {
     // Retire instructions.
-    int retired = sq->retire_until(curTick);
+    int sq_retired = sq->retire_until(curTick);
     // Instruction retired from ROB need to enter SQ sometimes.
-    retired += rob->retire_until(curTick, sq);
-    inst_num += retired;
+    int rob_retired = rob->retire_until(curTick, sq);
+    inst_num += rob_retired;
     //if (inst_num >= 10)
     //  break;
 #ifdef DEBUG
-    if (retired)
-      cout << curTick << " " << retired << "\n";
+    if (sq_retired || rob_retired)
+      cout << curTick << " r " << rob_retired << " " << sq_retired << "\n";
 #endif
     // Fetch instructions.
     int fetched = 0;
@@ -347,14 +347,13 @@ int main(int argc, char *argv[]) {
       if (num < CONTEXTSIZE)
         std::copy(default_val, default_val + (CONTEXTSIZE - num) * TD_SIZE, inputPtr + num * TD_SIZE);
 #ifdef DUMP_ML_INPUT
-      cout << newInst->trueFetchClass << " " << newInst->trueFetchTick << " " << newInst->trueCompleteClass << " " << newInst->trueCompleteTick << " ";
+      cout << newInst->trueFetchTick << " " << newInst->trueCompleteTick << " " << newInst->trueStoreTick << " ";
       for (int i = 3; i < ML_SIZE; i++) {
         if (i % TD_SIZE == 0 && inputPtr[i + 3] == 0)
           break;
-        double tmp = inputPtr[i] * factor[i % TD_SIZE] + mean[i % TD_SIZE];
-        int inttmp = round(tmp);
-        if (tmp - inttmp > 0.001 || tmp - inttmp < -0.001)
-          cout << tmp << " ";
+        int inttmp = round(inputPtr[i]);
+        if (abs(inputPtr[i] - inttmp) > 0.001)
+          cout << inputPtr[i] << " ";
         else
           cout << inttmp << " ";
       }
