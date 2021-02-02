@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(sim)
-set (CMAKE_CXX_FLAGS "-fopenmp -O3 -Wextra -g")
+set (CMAKE_CXX_FLAGS "-fopenmp")
 find_package(Torch REQUIRED)
 add_executable(simulator simulator.cpp)
 add_executable(simulator_ground_truth simulator.cpp)
