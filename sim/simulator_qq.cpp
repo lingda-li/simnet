@@ -320,7 +320,7 @@ int main(int argc, char *argv[]) {
     int fetched = 0;
     int int_fetch_lat;
     //while (fetched < FETCH_BANDWIDTH && !rob->is_full() && !eof) ??
-    while (!rob->is_full() && !eof) {
+    while (curTick >= nextFetchTick && !rob->is_full() && !eof) {
       Inst *newInst = rob->add();
       if (!newInst->read_sim_data(trace, aux_trace)) {
         eof = true;
@@ -452,33 +452,50 @@ int main(int argc, char *argv[]) {
     if (fetched)
       cout << curTick << " f " << fetched << "\n";
 #endif
-    if (rob->is_full() && int_fetch_lat) {
-      // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
-      curTick = max(rob->getHead()->completeTick, nextFetchTick);
-      Case1++;
-    } else if (int_fetch_lat) {
-      // Fast forward curTick to fetch instructions.
-      curTick = nextFetchTick;
-      Case0++;
+    if (int_fetch_lat) {
+      nextCommitTick = max(rob->getHead()->completeTick, curTick + 1)
+      curTick = min(nextCommitTick, nextFetchTick);
+      if (curTick == nextFetchTick)
+        Case0++;
+      else
+        Case1++;
     } else if (rob->is_full()) {
-      if (curTick == rob->getHead()->completeTick) {
-        if (fetched) {
-          curTick++;
-          Case4++;
-        } else {
-          assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
-          curTick = sq->getHead()->storeTick;
-          Case3++;
-        }
-      } else {
-        // Fast forward curTick to retire instructions.
-        curTick = rob->getHead()->completeTick;
-        Case2++;
-      }
+      curTick = max(rob->getHead()->completeTick, curTick + 1)
+      Case2++;
     } else {
-      curTick++;
-      Case5++;
+      assert(eof);
+      curTick = max(rob->getHead()->completeTick, curTick + 1)
+      Case3++;
     }
+    //if (rob->is_full() && int_fetch_lat) {
+    //  // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
+    //  curTick = min(rob->getHead()->completeTick, nextFetchTick);
+    //  Case1++;
+    //} else if (int_fetch_lat) {
+    //  // Fast forward curTick to fetch instructions.
+    //  curTick = nextFetchTick;
+    //  nextCommitTick = max(rob->getHead()->completeTick, curTick + 1)
+    //  curTick = min(rob->getHead()->completeTick, nextFetchTick);
+    //  Case0++;
+    //} else if (rob->is_full()) {
+    //  if (curTick == rob->getHead()->completeTick) {
+    //    if (fetched) {
+    //      curTick++;
+    //      Case4++;
+    //    } else {
+    //      assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
+    //      curTick = sq->getHead()->storeTick;
+    //      Case3++;
+    //    }
+    //  } else {
+    //    // Fast forward curTick to retire instructions.
+    //    curTick = rob->getHead()->completeTick;
+    //    Case2++;
+    //  }
+    //} else {
+    //  curTick++;
+    //  Case5++;
+    //}
     int_fetch_lat = 0;
   }
   gettimeofday(&total_end, NULL);
