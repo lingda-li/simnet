@@ -26,7 +26,7 @@ using namespace std;
 #define CONTEXTSIZE (ROBSIZE + SQSIZE)
 #define TICK_STEP 500.0
 #define FETCH_BANDWIDTH 3
-#define RETIRE_BANDWIDTH 4
+#define RETIRE_BANDWIDTH 8
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 #define MIN_COMP_LAT 6
 #define MIN_ST_LAT 10
@@ -207,9 +207,15 @@ struct Queue {
     }
     return num;
   }
-  void update_fetch_cycle(Tick tick) {
-    assert(!is_empty());
-    for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
+  void update_fetch_cycle(Tick tick, bool is_rob) {
+    int i;
+    if (is_rob) {
+      assert(!is_empty());
+      i = dec(dec(tail));
+    } else {
+      i = dec(tail);
+    }
+    for (; i != dec(head); i = dec(i)) {
       insts[i].train_data[0] += tick;
       assert(insts[i].train_data[0] >= 0.0);
     }
@@ -340,7 +346,8 @@ int main(int argc, char *argv[]) {
       // Predict fetch, completion, and store latency.
       gettimeofday(&start, NULL);
       if (curTick != lastFetchTick) {
-        rob->update_fetch_cycle(curTick - lastFetchTick);
+        rob->update_fetch_cycle(curTick - lastFetchTick, true);
+        sq->update_fetch_cycle(curTick - lastFetchTick, false);
       }
       int rob_num = rob->make_input_data(inputPtr, *newInst, true, curTick);
       int sq_num = sq->make_input_data(inputPtr + rob_num * TD_SIZE, *newInst, false, curTick);
@@ -440,7 +447,7 @@ int main(int argc, char *argv[]) {
       newInst->train_data[1] = int_complete_lat;
       newInst->train_data[2] = int_store_lat;
 #endif
-      newInst->completeTick = curTick + int_fetch_lat + int_complete_lat;
+      newInst->completeTick = curTick + int_fetch_lat + int_complete_lat + 1;
       newInst->storeTick = curTick + int_fetch_lat + int_store_lat;
       lastFetchTick = curTick;
       if (int_fetch_lat) {
@@ -453,49 +460,28 @@ int main(int argc, char *argv[]) {
       cout << curTick << " f " << fetched << "\n";
 #endif
     if (int_fetch_lat) {
-      nextCommitTick = max(rob->getHead()->completeTick, curTick + 1)
+      Tick nextCommitTick = max(rob->getHead()->completeTick, curTick + 1);
       curTick = min(nextCommitTick, nextFetchTick);
       if (curTick == nextFetchTick)
         Case0++;
       else
         Case1++;
+    } else if (curTick < nextFetchTick) {
+      Tick nextCommitTick = max(rob->getHead()->completeTick, curTick + 1);
+      curTick = min(nextCommitTick, nextFetchTick);
+      Case3++;
+      if (curTick == nextFetchTick)
+        Case3++;
+      else
+        Case4++;
     } else if (rob->is_full()) {
-      curTick = max(rob->getHead()->completeTick, curTick + 1)
+      curTick = max(rob->getHead()->completeTick, curTick + 1);
       Case2++;
     } else {
       assert(eof);
-      curTick = max(rob->getHead()->completeTick, curTick + 1)
-      Case3++;
+      curTick = max(rob->getHead()->completeTick, curTick + 1);
+      Case5++;
     }
-    //if (rob->is_full() && int_fetch_lat) {
-    //  // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
-    //  curTick = min(rob->getHead()->completeTick, nextFetchTick);
-    //  Case1++;
-    //} else if (int_fetch_lat) {
-    //  // Fast forward curTick to fetch instructions.
-    //  curTick = nextFetchTick;
-    //  nextCommitTick = max(rob->getHead()->completeTick, curTick + 1)
-    //  curTick = min(rob->getHead()->completeTick, nextFetchTick);
-    //  Case0++;
-    //} else if (rob->is_full()) {
-    //  if (curTick == rob->getHead()->completeTick) {
-    //    if (fetched) {
-    //      curTick++;
-    //      Case4++;
-    //    } else {
-    //      assert(!sq->is_empty() && curTick < sq->getHead()->storeTick);
-    //      curTick = sq->getHead()->storeTick;
-    //      Case3++;
-    //    }
-    //  } else {
-    //    // Fast forward curTick to retire instructions.
-    //    curTick = rob->getHead()->completeTick;
-    //    Case2++;
-    //  }
-    //} else {
-    //  curTick++;
-    //  Case5++;
-    //}
     int_fetch_lat = 0;
   }
   gettimeofday(&total_end, NULL);
