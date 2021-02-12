@@ -444,9 +444,10 @@ class CNN7_F(nn.Module):
         return x
 
 class CNN7_F_P(nn.Module):
-    def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, ck4, ch4, cs4, cp4, ck5, ch5, cs5, cp5, ck6, ch6, cs6, cp6, ck7, ch7, cs7, cp7, f1):
+    def __init__(self, out, pc, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, ck4, ch4, cs4, cp4, ck5, ch5, cs5, cp5, ck6, ch6, cs6, cp6, ck7, ch7, cs7, cp7, f1):
         super(CNN7_F_P, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=inst_length, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self._fu = Fusion1dS(pc)
+        self.conv1 = nn.Conv1d(in_channels=pc, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
         self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
         self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
         self.conv4 = nn.Conv1d(in_channels=ch3, out_channels=ch4, kernel_size=ck4, stride=cs4, padding=cp4)
@@ -475,6 +476,7 @@ class CNN7_F_P(nn.Module):
     def forward(self, x):
         #x = x.view(-1, inst_length, context_length)
         x = x.view(-1, context_length, inst_length).transpose(2,1)
+        x = F.relu(self._fu(x))
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
