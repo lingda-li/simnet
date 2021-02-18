@@ -19,6 +19,7 @@ typedef long unsigned Addr;
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define TD_SIZE 51
+#define INST_SIZE 62
 #define CONTEXTSIZE 111
 #define ROBSIZE 400
 #define TICK_STEP 500.0
@@ -26,13 +27,25 @@ typedef long unsigned Addr;
 #define RETIRE_BANDWIDTH 4
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 #define MIN_COMP_LAT 6
-
+#define WARP
 #define ILINEC_BIT 33
 #define IPAGEC_BIT 38
 #define DADDRC_BIT 42
 #define DLINEC_BIT 43
 #define DPAGEC_BIT 47
+#define PC 51
+#define ISADDR 52
+#define ADDR 53
+#define ADDREND 54
+#define IWALK0 55
+#define IWALK1 56
+#define IWALK2 57
+#define DWALK0 58
+#define DWALK1 59
+#define DWALK2 60
+#define COMPLETETICK 61
 #define WARPSIZE 32
+#define WARP
 //#define Total_Trace 1024
 
 Tick Num = 0;
@@ -83,7 +96,7 @@ class Inst {
       assert(aux_trace.eof());
       return false;
     }
-    offset= TD_SIZE * index;
+    offset= INST_SIZE * index;
     //cout<< "Offset: "<< offset <<"   Memory: "<<train_data;
     assert(trueCompleteTick >= MIN_COMP_LAT);
     for (int i = 4; i < TD_SIZE; i++) {
@@ -97,6 +110,16 @@ class Inst {
       aux_trace >> iwalkAddr[i];
     for (int i = 0; i < 3; i++)
       aux_trace >> dwalkAddr[i];
+    train_data[PC]=pc;
+    train_data[ISADDR]=isAddr;
+    train_data[ADDR]=addr;
+    train_data[ADDREND]=addrEnd;
+    train_data[IWALK0]=iwalkAddr[0];
+    train_data[IWALK1]=iwalkAddr[1];
+    train_data[IWALK2]=iwalkAddr[2];
+    train_data[DWALK0]=dwalkAddr[0];
+    train_data[DWALK1]=dwalkAddr[1];
+    train_data[DWALK2]=dwalkAddr[2];
     assert(!trace.eof() && !aux_trace.eof());
     //cout << "in: ";
     //for (int i = 0; i < TD_SIZE; i++)
@@ -105,11 +128,54 @@ class Inst {
     //H_ERR(cudaMemcpy(train_data_d, train_data, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
     return true;
   }
+
+ bool read_sim_mem(float *trace, float *aux_trace, float *train_d, int index) {
+    train_data= train_d;
+    //trace >> trueFetchClass >> trueFetchTick;
+    //trace >> trueCompleteClass >> trueCompleteTick;
+    trueFetchClass= trace[0];
+    trueFetchTick= trace[1];
+    trueCompleteClass= trace[2];
+    trueCompleteTick= trace[3];
+    pc= aux_trace[0];
+    
+    
+    offset= INST_SIZE * index;
+    //cout<< "Offset: "<< offset <<"   Memory: "<<train_data;
+    //assert(trueCompleteTick >= MIN_COMP_LAT);
+    for (int i = 4; i < TD_SIZE; i++) {
+      train_data[i+offset]= trace[i]/factor[i];
+      //train_data[i+offset] /= factor[i];
+    }
+    train_data[0 + offset] = train_data[1 + offset] = 0.0;
+    train_data[2 + offset] = train_data[3 + offset] = 0.0;
+    //aux_trace >> isAddr >> addr >> addrEnd;
+    isAddr= aux_trace[1];
+    addr= aux_trace[2];
+    addrEnd= aux_trace[3];
+    for (int i = 0; i < 3; i++)
+      iwalkAddr[i]=aux_trace[3+i];
+    for (int i = 0; i < 3; i++)
+      dwalkAddr[i]=aux_trace[6+i];
+    train_data[PC]=pc;
+    train_data[ISADDR]=isAddr;
+    train_data[ADDR]=addr;
+    train_data[ADDREND]=addrEnd;
+    train_data[IWALK0]=iwalkAddr[0];
+    train_data[IWALK1]=iwalkAddr[1];
+    train_data[IWALK2]=iwalkAddr[2];
+    train_data[DWALK0]=dwalkAddr[0];
+    train_data[DWALK1]=dwalkAddr[1];
+    train_data[DWALK2]=dwalkAddr[2];
+    //assert(!trace.eof() && !aux_trace.eof());
+    return true;
+ }	
 };
 
 class ROB{
 public:
-    Inst insts[ROBSIZE +1];
+    //Inst insts[ROBSIZE+1];
+    float *insts;
     int head= 0;
     int tail= 0;
     bool saturated= false; 
@@ -119,7 +185,7 @@ public:
     }
     ~ROB(){};
     ROB(){
-        H_ERR(cudaMalloc((void **)&insts, sizeof(Inst)*(ROBSIZE+1)));
+        H_ERR(cudaMalloc((void **)&insts, sizeof(float)*(ROBSIZE*INST_SIZE)));
     };
     __host__ __device__ int inc(int input) {
         if (input == ROBSIZE)
@@ -145,11 +211,12 @@ __host__ __device__
     //printf("index updated.\n");
     //return &insts[old_tail];
   }
-
+    /*
     __device__
     Inst *getHead() {
         return &insts[head];
       }
+      */
 
 __device__ void
 	retire(){
@@ -158,17 +225,18 @@ __device__ void
 	}
 
  __device__
- int retire_until(Tick tick) {
+ int retire_until(Tick tick, float *insts) {
 	//printf("Head: %d\n",head);
+	 int completeTick;
 	int retired = 0;
-	while (!is_empty() && insts[head].completeTick <= tick) {
+	while (!is_empty() && insts[COMPLETETICK] <= tick) {
 		retire();
 		retired++;
 	}
 	return retired;
  }
 
-
+/*
 	  __device__
     void update_fetch_cycle(Tick tick, Tick curTick, float *factor) {
         int TID= (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -195,66 +263,92 @@ __device__ void
         }
       }
 
+*/      
 __device__ 
-	  int make_input_data(float *context, Tick tick, float *factor, float *default_val) {
- 	//printf("Here. Head: %d, Tail: %d\n",head,tail);
+	  int make_input_data(float *context, float *insts, Tick tick, float *factor, float *default_val) {
+ 	//if(){printf("Here. Head: %d, Tail: %d\n",head,tail);}
 
  	int TID= (blockIdx.x * blockDim.x) + threadIdx.x;
-	//int warpID= TID / WARPSIZE;
+	int warpID= TID / WARPSIZE;
 	int  warpTID= TID % WARPSIZE;
+	int offset;
+#ifdef WARP
+	offset= warpID;
+#else
+	offset= blockIdx.x;
+#endif
+	//insts= insts + offset + INST_SIZE;
+	//if(warpTID==0){printf("Here. Head: %d, Tail: %d\n",head,tail);}
 	assert(!is_empty());
         saturated = false;
-        Addr pc = insts[dec(tail)].pc;
-        int isAddr = insts[dec(tail)].isAddr;
-        Addr addr = insts[dec(tail)].addr;
-        Addr addrEnd = insts[dec(tail)].addrEnd;
-        __shared__ Addr iwalkAddr[3], dwalkAddr[3];
-        if (warpTID==0){
-	for (int i = 0; i < 3; i++) {
-          iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
-          dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
-        }}
-	int i=warpTID;
-	while(i<TD_SIZE){
-		//context[i]=insts[dec(tail)].train_data[i];
-		//printf("Thread: %d, Copy: Source: train_data %d, Dest:context %d Value: %.3f, %.3f\n ",warpTID,i,dec(tail),context[i],insts[dec(tail)].train_data[i] );
-		i+=WARPSIZE;
+	__shared__ int num[4];
+        Addr pc = insts[ dec(tail)* INST_SIZE + PC];
+        int isAddr= insts[dec(tail) * INST_SIZE + ISADDR];
+        Addr addr = insts[dec(tail) * INST_SIZE + ADDR];
+        Addr addrEnd = insts[dec(tail)* INST_SIZE + ADDREND];
+        Addr iwalkAddr[3], dwalkAddr[3];
+        int i= warpTID;
+	//if (warpTID==0){
+	while(i<3){
+	//for (int i = 0; i < 3; i++) {
+          iwalkAddr[i] = insts[dec(tail)*INST_SIZE+ 55+i];
+          dwalkAddr[i] = insts[dec(tail)*INST_SIZE+ 58+i];
+        i++;
 	}
+	__syncwarp();
+	
 	int start = dec(dec(tail)); int end= dec(head);
-        int num= end-start; 
+        //int num= end-start;
+        //if(warpTID==0){printf("Here. Head: %d, Tail: %d, start: %d, end: %d, curr: %d \n",head,tail,start,end,dec(tail));}	
 	i= start - warpTID;
 	while(i > end){  
-	  //printf("ThreadID: %d, inst id: %d\n",warpTID, i);
-	  if (insts[i].completeTick <= tick)
+	  printf("ThreadID: %d, inst id: %d\n",warpTID, i);
+	  if (insts[i*INST_SIZE+COMPLETETICK] <= tick)
             continue;
-          if (num >= CONTEXTSIZE) {
+          if (num[warpID] >= CONTEXTSIZE) {
             saturated = true;
             return 0;
           }
           // Update context instruction bits.
-          insts[i].train_data[ILINEC_BIT] = insts[i].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
+          insts[i*INST_SIZE+ ILINEC_BIT] = insts[i*INST_SIZE+PC] == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
           int conflict = 0;
           for (int j = 0; j < 3; j++) {
-            if (insts[i].iwalkAddr[j] != 0 && insts[i].iwalkAddr[j] == iwalkAddr[j])
+            if (insts[i*INST_SIZE+j] != 0 && insts[i*INST_SIZE+j] == iwalkAddr[j])
               conflict++;}
-          insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
-          insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].isAddr && addrEnd >= insts[i].addr && addr <= insts[i].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
-          insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
+          //insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
+          //insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].train_data[ISADDR] && addrEnd >= insts[i].train_data[ADDR] && addr <= insts[i].train_data[ADDREND]) ? 1.0 / factor[DADDRC_BIT] : 0.0;
+          //insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].train_data[ISADDR] && (addr & ~0x3f) == (insts[i].train_data[ADDR] & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
           conflict = 0;
-          if (isAddr && insts[i].isAddr)
+          if (isAddr && insts[i*INST_SIZE+ISADDR])
             for (int j = 0; j < 3; j++) {
-              if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])
+              if (insts[i*INST_SIZE+j] != 0 && insts[i*INST_SIZE+j] == dwalkAddr[j])
                 conflict++;}
-          insts[i].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
+          insts[i*INST_SIZE+DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
           //std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
           //num++;
+	  atomicAdd(&num[warpID],1);
         i-=WARPSIZE;
 	}
-	__syncwarp(); //printf("Adding default values.\n");
+	__syncwarp();
+       //if(warpTID==0){printf("Here. Head: %d, Tail: %d, start: %d, end: %d, curr: %d \n",head,tail,start,end,dec(tail));}	
+	/* Data copy: current instruction and ROB instructions*/
+	int j= tail;
+	while(j>head)
+	{
+		//if(warpTID==0){ printf("Working on %d\n",j);}
+		i= warpTID;	 
+		while(i<TD_SIZE){
+			context[i]= insts[j*INST_SIZE+i];
+			i+=WARPSIZE;
+		}
+		j-=1;
+	}
+		
+	//printf("Adding default values.\n");
 	i= warpTID;
 	while (i<TD_SIZE){
         	//for (int i = num; i < CONTEXTSIZE; i++) { //printf("thread: %d, i: %d\n",warpTID,i);
-		int j= num;
+		int j= num[0];
 		while(j< CONTEXTSIZE){
 			context[i+j*TD_SIZE]= default_val[i];
 			//printf("Context: %d, index: %d\n", j,i+j*TD_SIZE);
@@ -270,7 +364,7 @@ class ROB_d {
 	ROB *rob;
        ROB_d(int Total_Trace){
        		//ROB rob[Total_Trace]; 		
-	       H_ERR(cudaMalloc((void **)&rob, sizeof(ROB)*(Total_Trace)));
+		H_ERR(cudaMalloc((void **)&rob, sizeof(ROB)*(Total_Trace)));
 
        }	
 };
@@ -286,59 +380,64 @@ dis(float *data, int len)
 }
 
 __global__ void
-preprocess(ROB_d *rob_d, float *factor, float *mean, float *default_val, float *inputPtr, float *train_data, params *param )
+preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *default_val, float *inputPtr, float *train_data, params *param, int Total_Trace )
 {
     
     int fetched=0, curTick=0, lastFetchTick=0;
     int TID=(blockIdx.x * blockDim.x) + threadIdx.x ;
     int warpID= TID/WARPSIZE;
     int warpTID = TID%WARPSIZE;
-    // Assign ROB to respective warpID
-    ROB *rob = &rob_d->rob[warpID];
-    //if(warpTID==0) { printf("assigned: %d\n",warpID);}
-    // Add to ROB
-    //rob->add();
-    //printf("new inst added");
-    /* 
-       push new instruction to respective input data but not latency
-       latency will be updated directly during result update (if performed in GPU)  
-     */
-    inputPtr= inputPtr + ML_SIZE * warpID;
+    int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
+    int index,Total;
+    ROB *rob;
+    float *rob_pointer;
+    float *input_ptr; 
+#ifdef WARP	
+    index= warpID;
+    Total= TotalWarp;
+#else
+    index= blockIdx.x;
+    Total= gridDim.x;
+#endif
+     while(index<Total_Trace){
+     	rob = &rob_d->rob[index];
+    //if(warpTID==0) { printf("Read: Warp: %d, assigned: %d, next: %d\n",warpID, index, index + Total);}
+    //push new instruction to respective ROB but not latency
+    int tail= rob->dec(tail);
+    //if(warpTID==0) { printf("Read: Warp: %d, assigned: %d, next: %d\n",warpID, index, index + Total);}
+    //int tail= rob->dec(tail);
+    rob_pointer= insts + ROBSIZE * index;	
     int i= warpTID+4; 
-    while(i<TD_SIZE)
+    while(i<INST_SIZE)
     {
-	    inputPtr[i]= train_data[i + warpID * TD_SIZE];
+	    rob_pointer[i]= train_data[i + warpID * INST_SIZE];
 	    //printf("t: %d, i: %d, offset: %d\n",TID,i,train_offset);	
 	    i+=WARPSIZE;		
     }
+     
+    __syncwarp();
+    //rob = &rob_d->rob[TID];
     //if(warpTID==0) { printf("Inpt: %d\n",warpID);} 
     if(warpTID==0){
-	//printf("Retiring..\n");
-    	int retired = rob->retire_until(curTick); 
+       	int retired = rob->retire_until(curTick, insts); 
     	//printf("Retired. \n");
-	fetched++;
-    	//newInst->inTick = curTick;
-    	//printf("Head: %d, Tail: %d\n",rob->head, rob->tail);
-	rob->add();
+	fetched++;	
+    	rob->add();
+	//printf("Update: ROB: %d, thread: %d, head:%d, tail: %d, newIndex: %d\n", index, threadIdx.x, rob->head, rob->tail, (index + gridDim.x * blockDim.x));
     	if (curTick != lastFetchTick) {
-        	rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
-   	 }
+        	//rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
+   	}
     }
     __syncwarp();
-    //printf("update completed\n"); 
-    //ROB *rob = &rob_d->rob[warpID];
-    //inputPtr = inputPtr + ML_SIZE * warpID;
-    rob->make_input_data(inputPtr, curTick, factor, default_val);
-    /*
-    param->fetched = fetched;
-    param->is_full= rob->rob[warpID]->is_full();
-    param->saturated= rob->rob[warpID]->saturated;
-    param->is_empty= rob->rob[warpID]->is_empty();
-    param->completeTick= rob->rob->[warpID]->getHead()->completeTick;
-    //if(threadIdx.x==0)	{dis(inputPtr,ML_SIZE);}    
-    */
+    //if(TID==0){printf("update completed\n"); }
+    //rob = &rob_d->rob[index];
+    float *input_Ptr = inputPtr + ML_SIZE * index;
+    //while(index<Total_Trace){
+	//if(warpTID==0) { printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);}
+    	rob->make_input_data(input_Ptr, rob_pointer, curTick, factor, default_val);        
+    	index+= Total;            
     }
-
+}
 
 __global__ void
 update( ROB_d *rob_d, float* output, float* inputPtr, float* factor, float* mean ){
@@ -384,6 +483,16 @@ update( ROB_d *rob_d, float* output, float* inputPtr, float* factor, float* mean
 	*/
 }
 
+void display(float *data, int rows)
+{
+	int size=39;
+	for(int i=0;i<rows;i++){
+		for(int j=0;j<size;j++){
+			printf("%.3f\t",data[i*size+j]);
+		}
+		printf("\n");
+	}
+}
 
 
 float *read_numbers(char *fname, int sz) {
@@ -421,6 +530,19 @@ int main(int argc, char *argv[]) {
   //cout<<"trace written\n";
   int arg_idx=4;
   float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
+  /*
+  float *trace_;
+  FILE *trace_file;
+  trace_=(float*) malloc(39*999*sizeof(float));
+  trace_file=fopen("sim_input.bin","rb");
+  if(!trace_file){
+	  printf("Unable to open binary");
+	  return 1;
+  }
+  int r=fread(trace_,sizeof(float),39*999,trace_file);
+  printf("read :%d numbers.\n",r);
+  display(trace_,2);
+  */
   //unsigned long long total_num = atol(argv[arg_idx++]);
   //cout<<"Total: "<<total_num<<endl;
   for (int i = 0; i < TD_SIZE; i++) {
@@ -493,12 +615,12 @@ for(int i = 0; i < Total_Trace; i++) {
       aux_trace[0].seekg(0, aux_trace[0].beg);
     }
   }
-  //printf("Allocated. \n");
+ // printf("Allocated. \n");
   //return 0;
   float *factor_d, *default_val_d, *mean_d;
   float* train_data;
   //train_data= (float*) malloc(Total_Trace*TD_SIZE*sizeof(float));
-  cudaHostAlloc((void**)&train_data, Total_Trace*TD_SIZE*sizeof(float),
+  cudaHostAlloc((void**)&train_data, Total_Trace*INST_SIZE*sizeof(float),
 		          cudaHostAllocDefault);
   //printf("before rob\n");
   //return 0;
@@ -507,12 +629,12 @@ for(int i = 0; i < Total_Trace; i++) {
   //return 0;
   //cout<<"Rob tail: "<<rob.tail<<"\n"; 
   H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float)*ML_SIZE*Total_Trace));
+  //printf("Total mem: %d\n",ML_SIZE*Total_Trace);
   H_ERR(cudaMalloc((void **)&rob_d, sizeof(ROB_d)));
-
+  //H_ERR(cudaMalloc((void **)&insts, sizeof(float)*Total_Trace*ROB_SIZE*INST_SIZE));
   H_ERR(cudaMalloc((void **)&factor_d, sizeof(float)*(TD_SIZE)));
   H_ERR(cudaMalloc((void **)&mean_d, sizeof(float)*(TD_SIZE)));
   H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float)*(TD_SIZE)));
-
   H_ERR(cudaMemcpy(rob_d, &rob, sizeof(ROB_d), cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(factor_d, &factor, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
@@ -530,8 +652,9 @@ for(int i = 0; i < Total_Trace; i++) {
   Inst Inst_;
   struct params Host, *Device;
   struct Inst *newInst;
-  float* train_data_d;
-  H_ERR(cudaMalloc((void **)&train_data_d, sizeof(float)*Total_Trace*TD_SIZE));
+  float* train_data_d, *insts;
+  H_ERR(cudaMalloc((void **)&train_data_d, sizeof(float)*Total_Trace*INST_SIZE));
+  H_ERR(cudaMalloc((void **)&insts, sizeof(float)*Total_Trace*ROBSIZE*INST_SIZE));
   H_ERR(cudaMalloc((void **)&Device, sizeof(params)));
   //printf("InputPtr: %d, Train:%d\n ",Total_Trace*ML_SIZE,Total_Trace*TD_SIZE); 
   //H_ERR(cudaMalloc((void **)&Inst_.train_data_d, sizeof(float)*TD_SIZE));
@@ -547,15 +670,17 @@ for(int i = 0; i < Total_Trace; i++) {
     	//cout<<"First loop.i:" <<i<<endl; 
     	Inst newInst(train_data);    
     	//double st=wtime();
-    	if (!newInst.read_sim_data(trace[i], aux_trace[i], train_data, i)) {
+    	//trace+=((i%512)*39);
+	if (!newInst.read_sim_data(trace[i], aux_trace[i], train_data, i)) {
         	eof[i] = true;
 		cout<<"Inside 1st\n";
         	//rob->tail = rob->dec(rob->tail);
         
       	}
     }
-      double check= wtime();
-      H_ERR(cudaMemcpy(train_data_d, train_data, sizeof(float)*Total_Trace*TD_SIZE, cudaMemcpyHostToDevice));
+      double check1= wtime();
+      H_ERR(cudaMemcpy(train_data_d, train_data, sizeof(float)*Total_Trace*INST_SIZE, cudaMemcpyHostToDevice));
+      double check2= wtime();
       /*
       for(int i=0; i<TD_SIZE;i++)
       {
@@ -567,10 +692,10 @@ for(int i = 0; i < Total_Trace; i++) {
 	*/
         int block= Total_Trace/2;
 
-        preprocess<<<block,64>>>(rob_d, factor_d, mean_d, default_val_d,inputPtr,train_data_d, Device);
+        preprocess<<<5376,64>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, Device, Total_Trace);
 	H_ERR(cudaDeviceSynchronize());		
       	double en= wtime(); 
-	printf("%d, %.6f, %.6f, %.6f\n", Total_Trace, (en-st),(check-st),(en-check));
+	printf("%d, %.6f, %.6f, %.6f, %.6f\n", Total_Trace,(check1-st),(check2-check1),(en-check2),(en-st));
         return 0;	
 	H_ERR(cudaMemcpy(&Host, Device, sizeof(params), cudaMemcpyDeviceToHost));
 	//cout<<"Here\n";
