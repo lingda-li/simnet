@@ -45,7 +45,8 @@ typedef long unsigned Addr;
 #define DWALK2 60
 #define COMPLETETICK 61
 #define WARPSIZE 32
-#define WARP
+#define TRACE_DIM 39
+#define AUX_TRACE_DIM 10
 //#define Total_Trace 1024
 
 Tick Num = 0;
@@ -129,7 +130,7 @@ class Inst {
     return true;
   }
 
- bool read_sim_mem(float *trace, float *aux_trace, float *train_d, int index) {
+ bool read_sim_mem(float *trace, uint64_t *aux_trace, float *train_d, int index) {
     train_data= train_d;
     //trace >> trueFetchClass >> trueFetchTick;
     //trace >> trueCompleteClass >> trueCompleteTick;
@@ -277,31 +278,34 @@ __device__
 #else
 	offset= blockIdx.x;
 #endif
+ 	int curr= dec(tail);
+	int start_context= dec(dec(tail));
+	int end_context= dec(head);
 	//insts= insts + offset + INST_SIZE;
 	//if(warpTID==0){printf("Here. Head: %d, Tail: %d\n",head,tail);}
 	assert(!is_empty());
         saturated = false;
 	__shared__ int num[4];
-        Addr pc = insts[ dec(tail)* INST_SIZE + PC];
-        int isAddr= insts[dec(tail) * INST_SIZE + ISADDR];
-        Addr addr = insts[dec(tail) * INST_SIZE + ADDR];
-        Addr addrEnd = insts[dec(tail)* INST_SIZE + ADDREND];
+        Addr pc = insts[curr * INST_SIZE + PC];
+        int isAddr= insts[curr * INST_SIZE + ISADDR];
+        Addr addr = insts[curr * INST_SIZE + ADDR];
+        Addr addrEnd = insts[curr * INST_SIZE + ADDREND];
         Addr iwalkAddr[3], dwalkAddr[3];
         int i= warpTID;
 	//if (warpTID==0){
 	while(i<3){
 	//for (int i = 0; i < 3; i++) {
-          iwalkAddr[i] = insts[dec(tail)*INST_SIZE+ 55+i];
-          dwalkAddr[i] = insts[dec(tail)*INST_SIZE+ 58+i];
+          iwalkAddr[i] = insts[curr*INST_SIZE + IWALK0 + i];
+          dwalkAddr[i] = insts[curr*INST_SIZE + DWALK0 + i];
         i++;
 	}
 	__syncwarp();
 	
-	int start = dec(dec(tail)); int end= dec(head);
+	//int start = dec(dec(tail)); int end= dec(head);
         //int num= end-start;
-        //if(warpTID==0){printf("Here. Head: %d, Tail: %d, start: %d, end: %d, curr: %d \n",head,tail,start,end,dec(tail));}	
-	i= start - warpTID;
-	while(i > end){  
+        if(warpTID==0){printf("Here. Head: %d, Tail: %d,current:%d, start: %d, end: %d, curr: %d \n",head,tail,curr,start_context,end_context,dec(tail));}	
+	i= start_context - warpTID;
+	while(i > end_context){  
 	  printf("ThreadID: %d, inst id: %d\n",warpTID, i);
 	  if (insts[i*INST_SIZE+COMPLETETICK] <= tick)
             continue;
@@ -332,10 +336,11 @@ __device__
 	__syncwarp();
        //if(warpTID==0){printf("Here. Head: %d, Tail: %d, start: %d, end: %d, curr: %d \n",head,tail,start,end,dec(tail));}	
 	/* Data copy: current instruction and ROB instructions*/
-	int j= tail;
-	while(j>head)
+	/*
+	int j= warpTID;
+	while(j>=end_context)
 	{
-		//if(warpTID==0){ printf("Working on %d\n",j);}
+		if(warpTID==0){ printf("Working on context: %d\n",j);}
 		i= warpTID;	 
 		while(i<TD_SIZE){
 			context[i]= insts[j*INST_SIZE+i];
@@ -343,17 +348,31 @@ __device__
 		}
 		j-=1;
 	}
-		
+	*/
+        i= warpTID;
+        while (i<TD_SIZE){
+                //for (int i = num; i < CONTEXTSIZE; i++) { //printf("thread: %d, i: %d\n",warpTID,i);
+                //if(warpTID==0){printf("");}
+                int j= curr;
+                while(j!= end_context){
+                        context[i+j*TD_SIZE]= insts[j*INST_SIZE+i];
+                        //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", j,i,i+j*TD_SIZE,warpTID, default_val[i]);
+                        j=dec(j);}
+        i+=WARPSIZE;}
+	__syncwarp();
+
 	//printf("Adding default values.\n");
 	i= warpTID;
 	while (i<TD_SIZE){
         	//for (int i = num; i < CONTEXTSIZE; i++) { //printf("thread: %d, i: %d\n",warpTID,i);
-		int j= num[0];
+		//if(warpTID==0){printf("");}
+		int j= 1;
 		while(j< CONTEXTSIZE){
 			context[i+j*TD_SIZE]= default_val[i];
-			//printf("Context: %d, index: %d\n", j,i+j*TD_SIZE);
+			//printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", j,i,i+j*TD_SIZE,warpTID, default_val[i]);
 			j++;}
 	i+=WARPSIZE;}
+	__syncwarp();
 	return 0;
       }
 };
@@ -370,12 +389,14 @@ class ROB_d {
 };
 
 __device__ void
-dis(float *data, int len)
+dis(float *data, int size, int rows)
 {
-	for(int i=0;i<len;i++)
+	for(int i=0;i<rows;i++)
 	{
-		printf("%.3f\t",data[i]);
-		if(i%6==0){printf("\n"); }
+		for(int j=0; j<size;j++){
+		printf("%.1f  ",data[i*size+j]);
+		}
+		printf("\n");
 	}
 }
 
@@ -406,7 +427,8 @@ preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *defau
     int tail= rob->dec(tail);
     //if(warpTID==0) { printf("Read: Warp: %d, assigned: %d, next: %d\n",warpID, index, index + Total);}
     //int tail= rob->dec(tail);
-    rob_pointer= insts + ROBSIZE * index;	
+    rob_pointer= insts + ROBSIZE * INST_SIZE * index;	
+     float *input_Ptr = inputPtr + ML_SIZE * index;
     int i= warpTID+4; 
     while(i<INST_SIZE)
     {
@@ -414,7 +436,6 @@ preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *defau
 	    //printf("t: %d, i: %d, offset: %d\n",TID,i,train_offset);	
 	    i+=WARPSIZE;		
     }
-     
     __syncwarp();
     //rob = &rob_d->rob[TID];
     //if(warpTID==0) { printf("Inpt: %d\n",warpID);} 
@@ -430,12 +451,15 @@ preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *defau
     }
     __syncwarp();
     //if(TID==0){printf("update completed\n"); }
-    //rob = &rob_d->rob[index];
-    float *input_Ptr = inputPtr + ML_SIZE * index;
+    //rob = &rob_d->rob[index]; 
     //while(index<Total_Trace){
 	//if(warpTID==0) { printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);}
     	rob->make_input_data(input_Ptr, rob_pointer, curTick, factor, default_val);        
-    	index+= Total;            
+    	index+= Total;  
+	if(warpTID==0){
+		printf("Input_Ptr\n");
+		dis(input_Ptr,TD_SIZE,3 );
+	}	
     }
 }
 
@@ -483,16 +507,28 @@ update( ROB_d *rob_d, float* output, float* inputPtr, float* factor, float* mean
 	*/
 }
 
-void display(float *data, int rows)
+
+
+void display(float *data, int size, int rows)
 {
-	int size=39;
 	for(int i=0;i<rows;i++){
 		for(int j=0;j<size;j++){
-			printf("%.3f\t",data[i*size+j]);
+			printf("%.2f\t",data[i*size+j]);
 		}
 		printf("\n");
 	}
 }
+
+void display(unsigned long *data, int size, int rows)
+{
+	        for(int i=0;i<rows;i++){
+			                for(int j=0;j<size;j++){
+						                        printf("%.ld\t",data[i*size+j]);
+									                }
+					                printf("\n");
+							        }
+}
+
 
 
 float *read_numbers(char *fname, int sz) {
@@ -504,64 +540,58 @@ float *read_numbers(char *fname, int sz) {
   return ret;
 }
 
-int main(int argc, char *argv[]) {
+int read_trace_mem(char trace_file[], char aux_trace_file[], float *trace, unsigned long *aux_trace, int instructions)
+{
+  FILE *trace_f=fopen(trace_file,"rb");
+  if(!trace_f){
+	printf("Unable to read trace binary.");
+	return 1;
+	}
+    int r=fread(trace,sizeof(float),TRACE_DIM*instructions,trace_f);
+    printf("read :%d values for trace.\n",r);
+    //display(trace,TRACE_DIM,2);
 
+  FILE *aux_trace_f=fopen(aux_trace_file,"rb");
+  if(!aux_trace_f){
+        printf("Unable to aux_trace binary.");
+        return 1;
+        }
+    int k=fread(aux_trace,sizeof(unsigned long),AUX_TRACE_DIM*instructions,aux_trace_f);  
+    printf("read :%d values for aux_trace.\n",k);
+    display(aux_trace,AUX_TRACE_DIM,2);
+}
+
+int main(int argc, char *argv[]) {
+printf("args count: %d\n",argc);
 #ifdef CLASSIFY
-  if (argc != 7) {
+  if (argc != 8) {
     cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <class module> <variances> <# inst> <Total trace>" << endl;
+    return 0;
+  }
 #else
-  if (argc != 6) {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <# inst> <Total trace>" << endl;
+  if (argc != 7) {
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <Total trace> <#Insts>" << endl;
 #endif
     return 0;
-  }
-  ifstream trace_test(argv[1]);
-  if (!trace_test.is_open()) {
-    cerr << "Cannot open trace file.\n";
-    return 0;
-  }
-  ifstream aux_trace_test(argv[2]);
-  if (!aux_trace_test.is_open()) {
-    cerr << "Cannot open auxiliary trace file.\n";
-    return 0;
-  }
-  //printf("trace read\n");
-  
-  //cout<<"trace written\n";
+  } 
   int arg_idx=4;
   float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
-  /*
-  float *trace_;
-  FILE *trace_file;
-  trace_=(float*) malloc(39*999*sizeof(float));
-  trace_file=fopen("sim_input.bin","rb");
-  if(!trace_file){
-	  printf("Unable to open binary");
-	  return 1;
-  }
-  int r=fread(trace_,sizeof(float),39*999,trace_file);
-  printf("read :%d numbers.\n",r);
-  display(trace_,2);
-  */
-  //unsigned long long total_num = atol(argv[arg_idx++]);
-  //cout<<"Total: "<<total_num<<endl;
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
     mean[i] = -0.0;
 #endif
     factor[i] = sqrtf(varPtr[i]);
-    default_val[i] = -mean[i] / factor[i];
-    //cout << default_val[i] << " ";
-  }
-  //printf("var read\n");
-  int Total_Trace = atoi(argv[arg_idx++]);
-  //printf("T_T: %d\n", Total_Trace);
-  std::string line;
-  int lines = 0;
-  while (std::getline(trace_test, line))
-    ++lines;
-  int Total_instr = lines;
-  int Batch_size = Total_instr / Total_Trace;
+    default_val[i] = -mean[i] / factor[i]; 
+    }
+  int Total_Trace= atoi(argv[arg_idx++]);
+  int Instructions= atoi(argv[arg_idx++]);  
+  
+  float *trace;
+  unsigned long *aux_trace;
+  trace=(float*) malloc(TRACE_DIM*Instructions*sizeof(float));
+  aux_trace=(unsigned long*) malloc(AUX_TRACE_DIM*Instructions*sizeof(unsigned long));
+  read_trace_mem(argv[1],argv[2],trace,aux_trace,Instructions); 
+  int Batch_size = Instructions / Total_Trace;
   int stop_flag, inst_num;
   //cout << "Batch size:  "<<Batch_size<<endl;
   //cout<<"Parameters read..\n";
@@ -577,8 +607,8 @@ int main(int argc, char *argv[]) {
   Tick Case4 = 0;
   Tick Case5 = 0;
   float *inputPtr;
-  ifstream *trace = new ifstream[Total_Trace];
-  ifstream *aux_trace = new ifstream[Total_Trace];
+  //ifstream *trace = new ifstream[Total_Trace];
+  //ifstream *aux_trace = new ifstream[Total_Trace];
   Tick *curTick = new Tick[Total_Trace];
   Tick *nextFetchTick = new Tick[Total_Trace];
   Tick *lastFetchTick = new Tick[Total_Trace];
@@ -591,6 +621,8 @@ int main(int argc, char *argv[]) {
   int *int_finish_latency = new int[Total_Trace];
   bool *eof = new bool[Total_Trace];
   int total_num= 10000;
+  float *trace_all[Total_Trace];
+  unsigned long *aux_trace_all[Total_Trace];
   //printf("variable init\n");
   
 #pragma omp parallel for
@@ -603,18 +635,11 @@ for(int i = 0; i < Total_Trace; i++) {
     fetched[i] = 0;
     eof[i] = false;
     int offset = i * Batch_size;
-    std::string line, line1;
+    trace_all[i]= trace + offset * TRACE_DIM;
+    aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
+    //std::string line, line1;
     int number_of_lines = 0;
-    trace[i].open(argv[1]);
-    aux_trace[i].open(argv[2]);
-    while (std::getline(trace[i], line) && std::getline(aux_trace[i], line1) &&
-           (number_of_lines < offset))
-      ++number_of_lines; 
-    if (i == 0) {
-      trace[0].seekg(0, trace[0].beg);
-      aux_trace[0].seekg(0, aux_trace[0].beg);
-    }
-  }
+     }
  // printf("Allocated. \n");
   //return 0;
   float *factor_d, *default_val_d, *mean_d;
@@ -671,13 +696,17 @@ for(int i = 0; i < Total_Trace; i++) {
     	Inst newInst(train_data);    
     	//double st=wtime();
     	//trace+=((i%512)*39);
-	if (!newInst.read_sim_data(trace[i], aux_trace[i], train_data, i)) {
-        	eof[i] = true;
+	//if (!newInst.read_sim_data(trace[i], aux_trace[i], train_data, i)) {
+          if(!newInst.read_sim_mem(trace_all[i],aux_trace_all[i],train_data,i)){
+		eof[i] = true;
 		cout<<"Inside 1st\n";
         	//rob->tail = rob->dec(rob->tail);
-        
       	}
-    }
+	  trace_all[i]+=TRACE_DIM;
+	  aux_trace_all[i]+=AUX_TRACE_DIM;
+
+      }	 
+      //display(train_data,INST_SIZE,2);
       double check1= wtime();
       H_ERR(cudaMemcpy(train_data_d, train_data, sizeof(float)*Total_Trace*INST_SIZE, cudaMemcpyHostToDevice));
       double check2= wtime();
@@ -692,7 +721,7 @@ for(int i = 0; i < Total_Trace; i++) {
 	*/
         int block= Total_Trace/2;
 
-        preprocess<<<5376,64>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, Device, Total_Trace);
+        preprocess<<<1,32>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, Device, Total_Trace);
 	H_ERR(cudaDeviceSynchronize());		
       	double en= wtime(); 
 	printf("%d, %.6f, %.6f, %.6f, %.6f\n", Total_Trace,(check1-st),(check2-check1),(en-check2),(en-st));
@@ -707,104 +736,12 @@ for(int i = 0; i < Total_Trace; i++) {
 	 float output[]={1.5,3.20,0,0,0,0};
       	measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
-#ifdef CLASSIFY
-      int f_class, c_class;
-      for (int i = 0; i < 2; i++) {
-        float max = cla_output[0][10*i].item<float>();
-        int idx = 0;
-        for (int j = 1; j < 10; j++) {
-          if (max < cla_output[0][10*i+j].item<float>()) {
-            max = cla_output[0][10*i+j].item<float>();
-            idx = j;
-          }
-        }
-        if (i == 0)
-          f_class = idx;
-        else
-          c_class = idx;
-     }
-#endif
-      float fetch_lat = output[0] * factor[1] + mean[1];
-      float finish_lat = output[0] * factor[3] + mean[3];
-      int int_fetch_lat = round(fetch_lat);
-      int int_finish_lat = round(finish_lat);
-      if (int_fetch_lat < 0)
-        int_fetch_lat = 0;
-      if (int_finish_lat < MIN_COMP_LAT)
-        int_finish_lat = MIN_COMP_LAT;
-#ifdef CLASSIFY
-      if (f_class <= 8)
-        int_fetch_lat = f_class;
-      if (c_class <= 8)
-        int_finish_lat = c_class + MIN_COMP_LAT;
-      //std::cout << curTick << ": ";
-      //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
-      //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
-#endif
-#ifdef DUMP_ML_INPUT
-      int_finish_lat = newInst->trueCompleteTick;
-      int_fetch_lat = newInst->trueFetchTick;
-#endif
-      newInst->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
-      newInst->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
-      newInst->train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
-      if (newInst->train_data[2] >= 9 / factor[2])
-        newInst->train_data[2] = 9 / factor[2];
-      newInst->train_data[3] = (int_finish_lat - mean[3]) / factor[3];
-      newInst->tickNum = int_finish_lat;
-      newInst->completeTick = curTick[0] + int_finish_lat + int_fetch_lat;
-      lastFetchTick = curTick;
-      if (total_num && fetched_inst_num[0] == total_num) {
-        eof[0] = true;
-        break;
-      }
-      if (int_fetch_lat) {
-        nextFetchTick = curTick + int_fetch_lat;
-        break;
-      }
-    
-#ifdef DEBUG
-    if (fetched)
-      cout << curTick << " f " << fetched << "\n";
-#endif
-    if ((Host.is_full || Host.saturated) && int_fetch_lat) {
-      // Fast forward curTick to the next cycle when it is able to fetch and retire instructions.
-      curTick[0] = max(Host.completeTick, nextFetchTick[0]);
-      if (Host.is_full)
-        Case1++;
-      else
-        Case2++;
-    } else if (int_fetch_lat) {
-      // Fast forward curTick to fetch instructions.
-      curTick[0] = nextFetchTick[0];
-      Case0++;
-    } else if (Host.is_full || Host.saturated) {
-      // Fast forward curTick to retire instructions.
-      //curTick = rob->getHead()->completeTick;
-      if (Host.is_full)
-        Case3++;
-      else
-        Case4++;
-    } else {
-      curTick++;
-      Case5++;
-    }
-    int_fetch_lat = 0;
-  
-for (int i = 0; i < Total_Trace; i++) {
-	      // cout<< "eof[ " << i << "]= " << eof[i]<<endl;
-	if (!eof[i] || !Host.is_empty) {
-	stop_flag = false;
-	break;
-	}
-	   }
-
   }
   gettimeofday(&total_end, NULL);
   double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 
-  trace[0].close();
-  aux_trace[0].close();
+  //trace[0].close();
+  //aux_trace[0].close();
 #ifdef RUN_TRUTH
   cout << "Truth" << "\n";
 #endif
