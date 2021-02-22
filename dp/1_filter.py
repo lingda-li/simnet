@@ -25,7 +25,7 @@ def dump():
     for i in range(10):
         print("Shuffle %d" % i)
         random.shuffle(newlines)
-    print("Write to %s with %d unique" % (output, len(lines)))
+    print("Write to %s with %d unique" % (output, len(lines)), flush=True)
     with open(output, 'w') as f:
         for item in newlines:
             f.write("%s\n" % item)
@@ -33,15 +33,15 @@ def dump():
 for i in range(len(args.fname)):
     fname = args.fname[i]
     if i == 0:
-        print("read to be filtered ", fname)
+        print("read to be filtered ", fname, flush=True)
         with open(fname) as f:
             for line in f:
                 data = line.rstrip('\n')
                 lines.add(data)
                 nlines += 1
-        print("Have %d lines initially" % nlines)
+        print("Have %d lines initially" % nlines, flush=True)
     else:
-        print("read filter ", fname)
+        print("read filter ", fname, flush=True)
         if i == 1:
             nlines = 0
         with open(fname) as f:
@@ -50,6 +50,6 @@ for i in range(len(args.fname)):
                 lines.discard(data)
                 nlines += 1
                 if (nlines % 1000000) == 0:
-                    print("Reduce to %d unique out of %d total" % (len(lines), nlines))
+                    print("Reduce to %d unique out of %d total" % (len(lines), nlines), flush=True)
 
 dump()
