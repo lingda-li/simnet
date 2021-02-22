@@ -2,7 +2,7 @@ import sys
 import os
 import argparse
 import numpy as np
-from q_format import *
+from qq_format import *
 
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)
@@ -67,12 +67,12 @@ for i in range(len(args.fname)):
                     for j in range(inst_num):
                         all_feats[nfilled, inst_length*j:inst_length*(j+1)] /= all_fac
             except:
-                print("Bad content: ", len(vals), vals)
+                print("Bad content:", len(vals), vals, flush=True)
                 bad_content += 1
                 continue
 
             if nfilled == 0:
-                print(all_feats[nfilled].shape)
+                print("First sample:", all_feats[nfilled].shape, len(vals))
                 print(all_feats[nfilled], flush=True)
             nfilled += 1
             nlines += 1
