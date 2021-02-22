@@ -1,3 +1,5 @@
+#include <memory>
+#include <vector>
 #include <iostream>
 #include <fstream>
 #include <cstring>
@@ -5,7 +7,7 @@
 #include <cmath>
 #include <sys/time.h>
 #include <omp.h>
-//#include "init.cuh"
+#include "trt.cuh"
 //#include <torch/script.h> // One-stop header.
 #include "wtime.h"
 using namespace std;
@@ -585,7 +587,24 @@ printf("args count: %d\n",argc);
     }
   int Total_Trace= atoi(argv[arg_idx++]);
   int Instructions= atoi(argv[arg_idx++]);  
-  
+  std::string model_path(argv[3]);
+  TRTUniquePtr< nvinfer1::ICudaEngine > engine{nullptr};
+  TRTUniquePtr< nvinfer1::IExecutionContext > context{nullptr};
+  deseralizer(engine,context,model_path);
+  std::vector<void*> buffers(engine->getNbBindings());
+  std::vector<nvinfer1::Dims> input_dims;
+  std::vector<nvinfer1::Dims> output_dims;
+  for (size_t i = 0; i < engine->getNbBindings(); ++i){
+    	auto binding_size = getSizeByDim(engine->getBindingDimensions(i)) * sizeof(float);
+	//cudaMalloc(&buffers[i], binding_size);
+	if (engine->bindingIsInput(i)){
+            input_dims.emplace_back(engine->getBindingDimensions(i));}
+	else{output_dims.emplace_back(engine->getBindingDimensions(i));}}
+	if (input_dims.empty() || output_dims.empty()){
+	    std::cerr << "Expect at least one input and one output for network\n";
+	    return -1;
+   	 }
+
   float *trace;
   unsigned long *aux_trace;
   trace=(float*) malloc(TRACE_DIM*Instructions*sizeof(float));
@@ -606,7 +625,7 @@ printf("args count: %d\n",argc);
   Tick Case3 = 0;
   Tick Case4 = 0;
   Tick Case5 = 0;
-  float *inputPtr;
+  float *inputPtr, *output;
   //ifstream *trace = new ifstream[Total_Trace];
   //ifstream *aux_trace = new ifstream[Total_Trace];
   Tick *curTick = new Tick[Total_Trace];
@@ -647,12 +666,8 @@ for(int i = 0; i < Total_Trace; i++) {
   //train_data= (float*) malloc(Total_Trace*TD_SIZE*sizeof(float));
   cudaHostAlloc((void**)&train_data, Total_Trace*INST_SIZE*sizeof(float),
 		          cudaHostAllocDefault);
-  //printf("before rob\n");
-  //return 0;
+
   ROB_d rob=ROB_d(Total_Trace);
-  //printf("rob allocated\n");
-  //return 0;
-  //cout<<"Rob tail: "<<rob.tail<<"\n"; 
   H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float)*ML_SIZE*Total_Trace));
   //printf("Total mem: %d\n",ML_SIZE*Total_Trace);
   H_ERR(cudaMalloc((void **)&rob_d, sizeof(ROB_d)));
@@ -660,10 +675,14 @@ for(int i = 0; i < Total_Trace; i++) {
   H_ERR(cudaMalloc((void **)&factor_d, sizeof(float)*(TD_SIZE)));
   H_ERR(cudaMalloc((void **)&mean_d, sizeof(float)*(TD_SIZE)));
   H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float)*(TD_SIZE)));
+  H_ERR(cudaMalloc((void **)&output, sizeof(float)*(TD_SIZE)*2));
   H_ERR(cudaMemcpy(rob_d, &rob, sizeof(ROB_d), cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(factor_d, &factor, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(mean_d, &mean, sizeof(float)*TD_SIZE, cudaMemcpyHostToDevice));
+  //H_ERR(cudaMemcpy(mean_d, &mean, sizeof(float)*TD_SIZE*2, cudaMemcpyHostToDevice));
+  buffers[0]= inputPtr;
+  buffers[1]= output; 
   struct timeval start, end, total_start, total_end;
   //printf("Cuda allocated\n");
   //return 0;
@@ -724,6 +743,8 @@ for(int i = 0; i < Total_Trace; i++) {
         preprocess<<<1,32>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, Device, Total_Trace);
 	H_ERR(cudaDeviceSynchronize());		
       	double en= wtime(); 
+	context->enqueue(Total_Trace, buffers.data(), 0, nullptr); 
+        cudaStreamSynchronize(0);
 	printf("%d, %.6f, %.6f, %.6f, %.6f\n", Total_Trace,(check1-st),(check2-check1),(en-check2),(en-st));
         return 0;	
 	H_ERR(cudaMemcpy(&Host, Device, sizeof(params), cudaMemcpyDeviceToHost));
