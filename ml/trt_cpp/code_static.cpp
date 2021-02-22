@@ -13,8 +13,9 @@
 #include <iostream>
 #include <sstream>
 #include "wtime.h"
+#include <iterator>
 //#define  batch_size 1
-//using namespace std;
+using namespace std;
 
 class Logger : public nvinfer1::ILogger
 {
@@ -94,20 +95,44 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
     //std::cout<<context->getBindingDimensions(0)<<"\n";
 }
 
-/*
-void seralizer()
+std::string readBuffer(std::string const& path)
 {
-	TRTUniquePtr<nvinfer1::IHostMemory> serializedModel= engine->serialize();
-	serializedModel->destroy();
+	string buffer;
+	ifstream stream(path.c_str(), ios::binary);
+
+    if (stream)
+    {
+        stream >> noskipws;
+        copy(istream_iterator<char>(stream), istream_iterator<char>(), back_inserter(buffer));
+    }
+
+    return buffer;
 }
 
-void deseralizer()
-{
-	TRTUniquePtr<nvinfer1::IRuntime> runtime= createInferRuntime(gLogger);
-	TRTUniquePtr<nvinfer1::ICudaEngine> runtime->deserializeCudaEngine(modelData, modelSize,nullptr);
 
+
+void serializer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine)
+{
+    TRTUniquePtr<nvinfer1::IHostMemory> serializedModel{engine->serialize()};
+    std::ofstream p("tensorrt_models/simnet1.engine",std::ios::binary);
+    p.write((const char*)serializedModel->data(),serializedModel->size());
+    p.close();
+    cout<<"Serialized\n";
+    //serializedModel->destroy();
 }
-*/
+
+void deseralizer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine, TRTUniquePtr<nvinfer1::IExecutionContext>& context, string model_path)
+{
+  std::string buffer= readBuffer(model_path);
+    if(buffer.size()){
+            TRTUniquePtr<nvinfer1::IRuntime> runtime{nvinfer1::createInferRuntime(gLogger)};
+            engine.reset(runtime->deserializeCudaEngine(buffer.data(),buffer.size(),nullptr));
+    }
+    else{cout<<"couldn't read model.\n";}
+    //engine.reset(engine);
+    context.reset(engine->createExecutionContext());
+    printf("Model loaded\n");
+}
 
 void load(){
 
@@ -145,35 +170,28 @@ int main(int argc, char* argv[])
     std::string model_path(argv[1]);
     TRTUniquePtr< nvinfer1::ICudaEngine > engine{nullptr};
     TRTUniquePtr< nvinfer1::IExecutionContext > context{nullptr};
-    //TRTUniquePtr< nvinfer1::ICudaEngine> deserializeCudaEngine(model_path, sizeof(float)*1000000,nullptr);
-    //deserialize ()
-    //TRTUniquePtr<nvinfer1::IRuntime> runtime= createInferRuntime(gLogger);
-    //TRTUniquePtr<nvinfer1::ICudaEngine> runtime->deserializeCudaEngine(model_path, sizeof(float)*1000000,nullptr);
-    parseOnnxModel(model_path, engine, context, batch_size);
-    //context->setOptimizationProfile(0);
-    std::vector<nvinfer1::Dims> input_dims; // we expect only one input
-    std::vector<nvinfer1::Dims> output_dims; // and one output
-    std::vector<void*> buffers(engine->getNbBindings());
+    deseralizer(engine,context,model_path);
+    //serializer(engine);
+    std::vector<nvinfer1::Dims> input_dims;
+    std::vector<nvinfer1::Dims> output_dims;
+    //parseOnnxModel(model_path, engine, context, batch_size); 
     printf("Max batch size for model: %d\n",engine->getMaxBatchSize());
-    printf("Binding dimensions: %d\n",buffers.end() - buffers.begin());
-    printf("Context size: %d \t (Memory for model operations) \n", context->getBindingDimensions(0));
-    printf("NB bindings: %d \n",engine->getNbBindings());
+    std::vector<void*> buffers(engine->getNbBindings());
+    //printf("Context size: %d \t (Memory for model operations) \n", context->getBindingDimensions(0));
+    //printf("NB bindings: %d \n",engine->getNbBindings());
     printf("Optimization profiles: %d\n",engine->getNbOptimizationProfiles());
     for (size_t i = 0; i < engine->getNbBindings(); ++i){
     	auto binding_size = getSizeByDim(engine->getBindingDimensions(i)) * sizeof(float);
-	//printf("I: %d, Binding_size: %d,Bind_size: %d, Batch: %d",i,binding_size ,engine->getBindingDimensions(i),binding_size/5661);
 	std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
 	cudaMalloc(&buffers[i], binding_size);
 	
 	if (engine->bindingIsInput(i)){
             input_dims.emplace_back(engine->getBindingDimensions(i));
-            //printf("Is input, ");
-	    //printf("%d\n",engine->getBindingDimensions(i));
+            
 	}
         else{
             output_dims.emplace_back(engine->getBindingDimensions(i));
-	    //printf("Is output, %d\n",engine->getBindingDimensions(i));
-        }
+	            }
     
 	}
     	if (input_dims.empty() || output_dims.empty()){
@@ -189,28 +207,25 @@ int main(int argc, char* argv[])
     {
 	    ptr[j]=1; 
     }
-    //gettimeofday(&start1, NULL);
     double st=wtime();
     cudaMemcpy(buffers[0],ptr,total*sizeof(float),cudaMemcpyHostToDevice);
     // Copy data to GPU
     cudaStreamSynchronize(0);
-    //gettimeofday(&check1, NULL);
     double check1= wtime();
-    context->enqueue(batch_size, buffers.data(), 0, nullptr);
-    //context->executeV2(buffers.data());
+    context->enqueue(batch_size, buffers.data(), 0, nullptr); 
     cudaStreamSynchronize(0);
     double en=wtime();
-    std::cout<< "Data: " << check1-st << " Inferece: " << en-check1 << "endl";
+    std::cout<< "Data: " << check1-st << " Inferece: " << en-check1 << endl;
     cudaMemcpy(result,buffers[1], 2 * batch_size, cudaMemcpyDeviceToHost);    
-    printf("Result: \n");
+    printf("\n Result: \n");
     for(int j=0; j<(4*2);j++)
     {
 	if((j>0) && (j%2==0)){ printf("\n");}
 	printf("%.3f\t",result[j]);
 	//if((j>0) && (j%2==0)){ printf("\n"); }
     }
-    std::cout<<buffers[1]<<"\n";
-    printf("Time: %f, %f\n",inf_only, inf); 
+    std::cout<<"\n";
+    //printf("Time: %f, %f\n",inf_only, inf); 
     for (void* buf : buffers){
 	cudaFree(buf);
     }
