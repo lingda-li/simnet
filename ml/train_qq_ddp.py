@@ -38,7 +38,7 @@ def train(args, model, device, train_loader, optimizer, epoch, rank):
         cla_loss1 = cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0])
         cla_loss2 = cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1])
         cla_loss3 = cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2])
-        loss = 0.05 * lat_loss + cla_loss1 + cla_loss2 + cla_loss3
+        loss = 0.02 * lat_loss + cla_loss1 + cla_loss2 + cla_loss3
         total_lat_loss += lat_loss.item()
         total_cla_loss1 += cla_loss1.item()
         total_cla_loss2 += cla_loss2.item()

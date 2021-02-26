@@ -31,7 +31,7 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
         lat_output = np.rint(lat_output)
         cur_lat_target = np.rint(cur_lat_target)
         print("norm latency output:", lat_output)
-    
+
         if args.no_class:
             errs = cur_lat_target - lat_output
         else:
@@ -52,13 +52,13 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
                 com_output = np.where(cla_res == 0, 0, com_output)
             print("combined output:", com_output)
             errs = cur_lat_target - com_output
-    
+
         print("errors:", errs)
         errs = errs.ravel()
         errs[errs < 0] = -errs[errs < 0]
         #errs[cur_cla_target == num_classes - 1] = -1
         print(errs.size)
-    
+
         if inst_type >= -1:
             for i in range(errs.size):
                 cur_inst_type = get_inst_type(x[i], 0, fs) - 1
@@ -69,7 +69,7 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
                 elif inst_type == -1 and (cur_inst_type == 25 or cur_inst_type == 26):
                     errs[i] = -1
             print(errs)
-    
+
         flat_target = cur_lat_target.ravel()
         print("Err avg, persentage, and std:", np.average(errs[errs != -1]), "\t", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]), "\t", np.std(errs[errs != -1]))
         his = np.histogram(errs, bins=range(-1, 100))
