@@ -86,6 +86,23 @@ class Inst {
   int offset;
   //H_ERR(cudaMalloc((void **)&train_data_d, sizeof(int)*TD_SIZE));
   // Read simulation data.
+
+
+
+  __device__ void
+dis(float *data, int size, int rows)
+{
+        for(int i=0;i<rows;i++)
+        {
+                for(int j=0; j<size;j++){
+                printf("%.1f  ",data[i*size+j]);
+                }
+                printf("\n");
+        }
+}
+
+
+
   Inst(){} 
   Inst(float *pointer){
 	train_data= pointer;
@@ -139,20 +156,21 @@ public:
     float *insts;
     int head= 0;
     int tail= 0;
+    int len= 0;
     bool saturated= false; 
     ~ROB(){};
     ROB(){
         H_ERR(cudaMalloc((void **)&insts, sizeof(float)*(ROBSIZE*INST_SIZE)));
     };
     __host__ __device__ int inc(int input) {
-        if (input == ROBSIZE)
+	if (input == ROBSIZE)
           return 0;
         else
           return input + 1;
     }
 
     __host__ __device__ int dec(int input) {
-        if (input == 0)
+	if (input == 0)
           return ROBSIZE;
         else
           return input - 1;
@@ -165,6 +183,7 @@ __host__ __device__
     assert(!is_full());
     int old_tail = tail;
     tail = inc(tail);
+    len+= 1;
     //printf("index updated.\n");
     return old_tail;
   }
@@ -178,6 +197,7 @@ __device__ void
 	retire(){
 		assert(!is_empty());
 		head= inc(head);
+		len-=1;
 	}
 
  __device__
@@ -191,31 +211,57 @@ __device__ void
  }
 
 
+  __device__ void
+dis(float *data, int size, int rows)
+{
+        for(int i=0;i<rows;i++)
+        {
+                for(int j=0; j<size;j++){
+                printf("%.1f  ",data[i*size+j]);
+                }
+                printf("\n");
+        }
+}
+
+
+
 	  __device__
     void update_fetch_cycle(Tick tick, Tick curTick, float *factor, float *insts) {
         int TID= (blockIdx.x * blockDim.x) + threadIdx.x;
 	//int warpID= TID / WARPSIZE;
-	int  warpTID= TID/ WARPSIZE;
+	int  warpTID= threadIdx.x % WARPSIZE;
     	assert(!is_empty());
-        int start_context = dec(dec(tail));
+        int context;
+	int start_context = dec(dec(tail));
         int end_context= dec(head);
-        //for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
-        //printf("start: %d, end: %d\n",start,end);
-        int i= (start_context - warpTID);
+	int length= len - 1;        
+        int i= warpTID;
+	//{printf("TID: %d, Index: %d,len: %d, Update: start: %d, end: %d\n",warpTID,i,len,start_context,end_context);}
 	//for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
-          while(i>=end_context){
+      if(warpTID==0){
+        printf("ROB:, head: %d, tail: %d \n", head, tail);
+        dis(insts, INST_SIZE, 4);
+       }  
+	__syncwarp();
+	while(i<length){
           //printf("I: %d\n",i);
-		  float *inst= insts + i* INST_SIZE;
-		if (inst[COMPLETETICK] <= curTick)
-            		continue;
-          inst[0] += tick / factor[0];
+		  context = start_context -i;
+		  context= (context>=0)?context:context+ROBSIZE;
+		  float *inst= insts + context * INST_SIZE;
+		  printf("warpTID:%d, Context: %d, curTick: %ld, %.2f\n",warpTID,context, curTick, inst[COMPLETETICK]);
+		 if (inst[COMPLETETICK] <= (float)curTick)
+			{printf("COntext: %d, warpTID: %d, Curtick: %ld, Inst: %.2f,continue\n",context, warpTID, curTick,inst[COMPLETETICK]);i+=WARPSIZE;continue;}
+        printf("Context: %d, Before, %.3f, %.3f, Next: %d\n",context, inst[0],inst[1],dec(i-32));  
+	inst[0] += tick / factor[0];
           if (inst[0] >= 9 / factor[0])
             inst[0] = 9 / factor[0];
           inst[1] += tick / factor[1];
+	  printf("Context: %d, After, %.3f, %.3f,Next: %d\n", context, inst[0],inst[1], dec(i-32));
           assert(inst[0] >= 0.0);
           assert(inst[1] >= 0.0);
-          i+=32; 
+          i+=WARPSIZE; 
 	  }
+	  __syncwarp();
       }
 
       
@@ -226,17 +272,9 @@ __device__
  	int TID= (blockIdx.x * blockDim.x) + threadIdx.x;
 	int warpID= TID / WARPSIZE;
 	int  warpTID= TID % WARPSIZE;
-	//int offset;
-#ifdef WARP
-	//offset= warpID;
-#else
-	//offset= blockIdx.x;
-#endif
  	int curr= dec(tail);
 	int start_context= dec(dec(tail));
 	int end_context= dec(head);
-	//insts= insts + offset + INST_SIZE;
-	//if(warpTID==0){printf("Here. Head: %d, Tail: %d\n",head,tail);}
 	assert(!is_empty());
         saturated = false;
 	__shared__ int num[4];
@@ -246,6 +284,7 @@ __device__
         Addr addrEnd = insts[curr * INST_SIZE + ADDREND];
         Addr iwalkAddr[3], dwalkAddr[3];
         int i= warpTID;
+	int length= len - 1;
 	//if (warpTID==0){
 	while(i<3){
 	//for (int i = 0; i < 3; i++) {
@@ -254,34 +293,33 @@ __device__
         i++;
 	}
 	__syncwarp();
-	
-	//int start = dec(dec(tail)); int end= dec(head);
-        //int num= end-start;
-        //if(warpTID==0){printf("Here. Head: %d, Tail: %d,current:%d, start: %d, end: %d, curr: %d \n",head,tail,curr,start_context,end_context,dec(tail));}	
-	i= start_context - warpTID;
-	while(i > end_context){  
+	i= warpTID;
+	while(i > length){
+	      int context_ = start_context -i;
+              context_= (context_>=0)?context_:context_+ROBSIZE;
+	      float *inst= insts + context_ * INST_SIZE;		
 	  printf("ThreadID: %d, inst id: %d\n",warpTID, i);
-	  if (insts[i*INST_SIZE+COMPLETETICK] <= tick)
+	  if (inst[COMPLETETICK] <= tick)
             continue;
           if (num[warpID] >= CONTEXTSIZE) {
             saturated = true;
             return 0;
           }
           // Update context instruction bits.
-          insts[i*INST_SIZE+ ILINEC_BIT] = insts[i*INST_SIZE+PC] == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
+          inst[ILINEC_BIT] = inst[PC] == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
           int conflict = 0;
           for (int j = 0; j < 3; j++) {
-            if (insts[i*INST_SIZE+j] != 0 && insts[i*INST_SIZE+j] == iwalkAddr[j])
+            if (inst[j] != 0 && inst[j] == iwalkAddr[j])
               conflict++;}
-          //insts[i].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
-          //insts[i].train_data[DADDRC_BIT] = (isAddr && insts[i].train_data[ISADDR] && addrEnd >= insts[i].train_data[ADDR] && addr <= insts[i].train_data[ADDREND]) ? 1.0 / factor[DADDRC_BIT] : 0.0;
-          //insts[i].train_data[DLINEC_BIT] = (isAddr && insts[i].train_data[ISADDR] && (addr & ~0x3f) == (insts[i].train_data[ADDR] & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
+          inst[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
+          inst[DADDRC_BIT] = (isAddr && insts[ISADDR] && addrEnd >= inst[ADDR] && addr <= inst[ADDREND]) ? 1.0 / factor[DADDRC_BIT] : 0.0;
+          inst[DLINEC_BIT] = (isAddr && inst[ISADDR] && (addr) == (inst[ADDR])) ? 1.0 / factor[DLINEC_BIT] : 0.0;
           conflict = 0;
-          if (isAddr && insts[i*INST_SIZE+ISADDR])
+          if (isAddr && inst[ISADDR])
             for (int j = 0; j < 3; j++) {
-              if (insts[i*INST_SIZE+j] != 0 && insts[i*INST_SIZE+j] == dwalkAddr[j])
+              if (inst[j] != 0 && inst[j] == dwalkAddr[j])
                 conflict++;}
-          insts[i*INST_SIZE+DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
+          inst[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
           //std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
           //num++;
 	  atomicAdd(&num[warpID],1);
@@ -327,17 +365,6 @@ class ROB_d {
        }	
 };
 
-__device__ void
-dis(float *data, int size, int rows)
-{
-	for(int i=0;i<rows;i++)
-	{
-		for(int j=0; j<size;j++){
-		printf("%.1f  ",data[i*size+j]);
-		}
-		printf("\n");
-	}
-}
 
 __global__ void
 preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *default_val, float *inputPtr, float *train_data, Tick *curTick_d, Tick *lastFetchTick_d, int Total_Trace )
@@ -375,14 +402,11 @@ preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *defau
 	    i+=WARPSIZE;		
     }
     __syncwarp();
-    //rob = &rob_d->rob[TID];
     //if(warpTID==0) { printf("Inpt: %d\n",warpID);} 
     if(warpTID==0){
        	if(rob->is_full()){
 	     printf("retired\n");
-	    int retired = rob->retire_until(curTick, insts); }
-    	//printf("Retired. \n");
-	//fetched++;	
+	    int retired = rob->retire_until(curTick, insts); }	
     	rob->add();
     //printf("Tail: %d, Curtick: %ld, lastFetchTick: %ld\n", rob->tail, curTick, lastFetchTick);
     }
@@ -390,7 +414,7 @@ preprocess(ROB_d *rob_d, float *insts,  float *factor, float *mean, float *defau
     __syncwarp();	
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick) {
-	    //if(warpTID==0){printf("update fetch");}
+	    //if(warpTID==0){printf("update fetch\n");}
         	rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor, rob_pointer);
    	}
     __syncwarp();
@@ -437,9 +461,11 @@ update( ROB_d *rob_d, float* output, float* insts, float* factor, float* mean, T
 	      //printf("index: %d, thread: %d, offset: %d \n",index,TID,offset);
 	      Tick nextFetchTick=0;
 	      rob = &rob_d->rob[index];
-             float *rob_pointer= insts + ROBSIZE * INST_SIZE * index;
-             int rob_offset= rob->dec(rob->tail) * INST_SIZE;
-	      //printf("Index: %d, offset: %d,Fetch: %.4f, Finish: %.4f\n ",index,rob->tail,output[offset+0],output[offset+1]);
+	      int rob_offset= ROBSIZE * INST_SIZE * index; 
+              int context_offset= rob->dec(rob->tail) * INST_SIZE;
+	      float *rob_pointer = insts + rob_offset + context_offset;
+	     printf("Head: %d, Tail: %d\n",rob->head, rob->tail); 
+	     //printf("Index: %d, offset: %d,Fetch: %.4f, Finish: %.4f\n ",index,rob->tail,output[offset+0],output[offset+1]);
 	      float fetch_lat = output[offset+0] * factor[1] + mean[1];
 	      float finish_lat = output[offset+1] * factor[3] + mean[3];
 	      int int_fetch_lat = round(fetch_lat);
@@ -454,17 +480,17 @@ update( ROB_d *rob_d, float* output, float* insts, float* factor, float* mean, T
 	     if (rob_pointer[2] >= 9 / factor[2])
 	     	{rob_pointer[2] = 9 / factor[2];}
 	     rob_pointer[3] = (int_finish_lat - mean[3]) / factor[3]; 
-	      //printf("Index: %d, offset: %d,Fetch: %.4f, Finish: %.4f,Rob0:%.2f,Rob1:%.2f,Rob2:%.2f,Rob3:%.2f\n",index,rob->tail,output[offset+0],output[offset+1],rob_pointer[0],rob_pointer[1],rob_pointer[2],rob_pointer[3]);
-	     rob_pointer[rob_offset+COMPLETETICK]= curTick[index] + int_finish_lat + int_fetch_lat;
+	      printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n",index,rob->tail,output[offset+0],output[offset+1],rob_pointer[0],rob_pointer[1],rob_pointer[2],rob_pointer[3]);
+	     rob_pointer[COMPLETETICK]= curTick[index] + int_finish_lat + int_fetch_lat;
 	     lastFetchTick[index]= curTick[index];
 	     if(int_fetch_lat){
 		   nextFetchTick= curTick[index] + int_fetch_lat;}
 			if((rob->is_full() || rob->saturated) && int_fetch_lat){
-				curTick[index]= max(rob_pointer[rob_offset+COMPLETETICK], nextFetchTick);}
+				curTick[index]= max(rob_pointer[COMPLETETICK], nextFetchTick);}
 			else if(int_fetch_lat){
 				curTick[index]= nextFetchTick;}
 			else if(rob->saturated || rob->is_full()){
-				curTick[index]= rob_pointer[rob_offset+COMPLETETICK];}
+				curTick[index]= rob_pointer[COMPLETETICK];}
 		
 	    	//printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]); 
 		index+= (gridDim.x*blockDim.x);	
@@ -567,7 +593,6 @@ printf("args count: %d\n",argc);
 	    std::cerr << "Expect at least one input and one output for network\n";
 	    return -1;
    	 }
-
   float *trace;
   Tick *aux_trace;
   trace=(float*) malloc(TRACE_DIM*Instructions*sizeof(float));
@@ -592,13 +617,11 @@ printf("args count: %d\n",argc);
   float *trace_all[Total_Trace];
   Tick *aux_trace_all[Total_Trace];
   //printf("variable init\n");
-  
 #pragma omp parallel for
 for(int i = 0; i < Total_Trace; i++) {
     int offset = i * Batch_size;
     trace_all[i]= trace + offset * TRACE_DIM;
     aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
-
      }
  // printf("Allocated. \n");
   //return 0;
@@ -639,30 +662,30 @@ for(int i = 0; i < Total_Trace; i++) {
   gettimeofday(&total_start, NULL);
   double start_= wtime();
   while(iteration<Batch_size){
-    //cout<< "Iteration: "<<iteration<<endl;
+    cout<< "Iteration: "<<iteration<<endl;
     double st= wtime(); 
     #pragma omp parallel for
    for(int i=0; i< Total_Trace; i++){ 
     	Inst newInst(train_data);   
-	//if (!newInst.read_sim_data(trace[i], aux_trace[i], train_data, i)) {
           if(!newInst.read_sim_mem(trace_all[i],aux_trace_all[i],train_data,i)){
 		cout<<"Inside 1st\n";
        	  }
 	  trace_all[i]+=TRACE_DIM;
 	  aux_trace_all[i]+=AUX_TRACE_DIM;
       }	 
-      //display(train_data,INST_SIZE,1);
+      display(train_data,INST_SIZE,1);
       double check1= wtime();
       H_ERR(cudaMemcpy(train_data_d, train_data, sizeof(float)*Total_Trace*INST_SIZE, cudaMemcpyHostToDevice));
+      
       double check2= wtime(); 
-      preprocess<<<4096,64>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, curTick, lastFetchTick, Total_Trace);
+      preprocess<<<1,32>>>(rob_d, insts,factor_d, mean_d, default_val_d,inputPtr,train_data_d, curTick, lastFetchTick, Total_Trace);
       H_ERR(cudaDeviceSynchronize());		
       	double check3= wtime();
 	//context->enqueue(Total_Trace, buffers.data(), 0, nullptr); 
-        context->executeV2(buffers.data()); 
+        context->enqueueV2(buffers.data(),0,nullptr); 
 	cudaStreamSynchronize(0);
-	update<<<1024,64>>>(rob_d, output, insts, factor_d, mean_d, curTick, lastFetchTick, Total_Trace);
-	 H_ERR(cudaDeviceSynchronize());
+	update<<<1,32>>>(rob_d, output, insts, factor_d, mean_d, curTick, lastFetchTick, Total_Trace);
+        H_ERR(cudaDeviceSynchronize());
 	iteration++;     
    }
    double end_= wtime();
