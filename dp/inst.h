@@ -66,6 +66,9 @@ struct Inst {
   // Read one instruction from SQ and ROB traces.
   bool read(ifstream &ROBtrace, ifstream &SQtrace);
 
+  // Read one instruction a single trace.
+  bool read(ifstream &Trace);
+
   // Generate the final OP code.
   void combineOp();
 
