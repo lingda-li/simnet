@@ -27,6 +27,7 @@
 #define DWALK2 60
 #define COMPLETETICK 61
 #define WARPSIZE 32
+#define WARPS 1
 #define TRACE_DIM 51
 #define AUX_TRACE_DIM 10
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
@@ -216,8 +217,8 @@ public:
     //for (int i = dec(dec(tail)); i != dec(head); i = dec(i)) {
     if (warpTID == 0)
     {
-      printf("ROB:, head: %d, tail: %d \n", head, tail);
-      dis(insts, INST_SIZE, 4);
+      //printf("ROB:, head: %d, tail: %d \n", head, tail);
+      //dis(insts, INST_SIZE, 4);
     }
     __syncwarp();
     while (i < length)
@@ -266,9 +267,10 @@ public:
     Addr iwalkAddr[3], dwalkAddr[3];
     int i = warpTID;
     int length = len - 1;
-    //if (warpTID==0){
+    //if (warpTID==0){printf("Len: %d\n",length);}
     while (i < 3)
     {
+      num[i]=0;
       //for (int i = 0; i < 3; i++) {
       iwalkAddr[i] = insts[curr * INST_SIZE + IWALK0 + i];
       dwalkAddr[i] = insts[curr * INST_SIZE + DWALK0 + i];
@@ -276,75 +278,79 @@ public:
     }
     __syncwarp();
     i = warpTID;
-    while (i > length)
+    while (i < length)
     {
       int context_ = start_context - i;
       context_ = (context_ >= 0) ? context_ : context_ + ROBSIZE;
       float *inst = insts + context_ * INST_SIZE;
-      printf("ThreadID: %d, inst id: %d\n", warpTID, i);
+      //printf("Updat: ThreadID: %d, inst id: %d\n", warpTID, i);
       if (inst[COMPLETETICK] <= tick)
-        continue;
+      	//{i+=WARPSIZE; printf("context: %d, %.2f, %ld\n",i,inst[COMPLETETICK],tick);continue;}
       if (num[warpID] >= CONTEXTSIZE)
-      {
+      {	
+	//printf("context: %d, %.2f, %ld\n" ,i,inst[COMPLETETICK],tick);
         saturated = true;
-        return 0;
+        i+=WARPSIZE; break;
       }
       // Update context instruction bits.
       inst[ILINEC_BIT] = inst[PC] == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
       int conflict = 0;
+      if(isAddr && inst[ISADDR]){
       for (int j = 0; j < 3; j++)
       {
         if (inst[j] != 0 && inst[j] == iwalkAddr[j])
           conflict++;
-      }
+      }}
       inst[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
       inst[DADDRC_BIT] = (isAddr && insts[ISADDR] && addrEnd >= inst[ADDR] && addr <= inst[ADDREND]) ? 1.0 / factor[DADDRC_BIT] : 0.0;
-      inst[DLINEC_BIT] = (isAddr && inst[ISADDR] && (addr) == (inst[ADDR])) ? 1.0 / factor[DLINEC_BIT] : 0.0;
+
+      inst[DLINEC_BIT] = (isAddr && inst[ISADDR] && ((int)floorf(addr) & 0xc0) == ((int)floorf(inst[ADDR]) & 0xc0)) ? 1.0 / factor[DLINEC_BIT] : 0.0;
       conflict = 0;
       if (isAddr && inst[ISADDR])
-        for (int j = 0; j < 3; j++)
+       {for (int j = 0; j < 3; j++)
         {
           if (inst[j] != 0 && inst[j] == dwalkAddr[j])
             conflict++;
-        }
+        }}
       inst[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];
       //std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
-      //num++;
-      atomicAdd(&num[warpID], 1);
-      i -= WARPSIZE;
-    }
-    __syncwarp();
-    i = warpTID;
-    while (i < TD_SIZE)
-    {
-      //printf("thread: %d, i: %d\n",warpTID,i);
-      //if(warpTID==0){printf("");}
-      int j = curr;
-      while (j != end)
-      {
-        context[i + j * TD_SIZE] = insts[j * INST_SIZE + i];
-        //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", j,i,i+j*TD_SIZE,warpTID, default_val[i]);
-        j = dec(j);
-      }
+      int poss= atomicAdd(&num[warpID], 1);
+      //{printf("Poss: %d\n",poss);}
       i += WARPSIZE;
     }
     __syncwarp();
-
-    //printf("Adding default values.\n");
+    //if(warpTID==0){printf("*********Copy context values.***********. Start: %d\n",dec(tail));}
+    i = warpTID;
+    int cus_T= 0;
+    while (i < TD_SIZE)
+    { 
+      int j = dec(tail);
+      int k=0;     
+      while (k <= num[warpID])
+      {
+        context[i + k * TD_SIZE] = insts[j * INST_SIZE + i];
+        //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", j,i,i+j*TD_SIZE,warpTID, context[i+j* TD_SIZE]);
+        j= dec(j);
+	k++;
+      }
+      i+= WARPSIZE;
+    }
+    __syncwarp();
+    //printf("Here. 2\n");
+    //if(warpTID==0){printf("************Adding default values.*****************. Start: %d\n",num[warpID]);}
     i = warpTID;
     while (i < TD_SIZE)
     {
-      //for (int i = num; i < CONTEXTSIZE; i++) { //printf("thread: %d, i: %d\n",warpTID,i);
-      //if(warpTID==0){printf("");}
-      int j = 1;
-      while (j != end)
+      int j = num[warpID] + 1;
+      while (j < CONTEXTSIZE)
       {
         context[i + j * TD_SIZE] = default_val[i];
         //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", j,i,i+j*TD_SIZE,warpTID, default_val[i]);
-        j++;
+        j+=1;
       }
-      i += WARPSIZE;
+      i+= WARPSIZE;
     }
+    //printf("Here. 3\n");
     __syncwarp();
     return 0;
   }
