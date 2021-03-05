@@ -469,7 +469,6 @@ int main(int argc, char *argv[]) {
     } else if (curTick < nextFetchTick) {
       Tick nextCommitTick = max(rob->getHead()->completeTick, curTick + 1);
       curTick = min(nextCommitTick, nextFetchTick);
-      Case3++;
       if (curTick == nextFetchTick)
         Case3++;
       else
