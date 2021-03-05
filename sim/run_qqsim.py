@@ -6,9 +6,11 @@ import os
 benchmark = sys.argv[1]
 num = sys.argv[2]
 dataset = "data_spec_q"
+#trace_prefix = ".qq100m"
+trace_prefix = ".ac100m"
 
-tr_file_name = dataset + "/" + benchmark + ".qq100m.tr"
-aux_file_name = dataset + "/" + benchmark + ".qq100m.tra"
+tr_file_name = dataset + "/" + benchmark + trace_prefix + ".tr"
+aux_file_name = dataset + "/" + benchmark + trace_prefix + ".tra"
 if not(os.path.exists(tr_file_name)):
   print("Cannot open trace", tr_file_name)
   sys.exit()

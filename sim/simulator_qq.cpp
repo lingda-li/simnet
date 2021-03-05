@@ -81,7 +81,7 @@ struct Inst {
       assert(aux_trace.eof());
       return false;
     }
-    assert(trueCompleteTick >= MIN_COMP_LAT);
+    assert(trueCompleteTick >= MIN_COMP_LAT || trueCompleteTick == 0);
     assert(trueStoreTick == 0 || trueStoreTick >= MIN_ST_LAT);
     for (int i = 3; i < TD_SIZE; i++) {
       trace >> train_data[i];
