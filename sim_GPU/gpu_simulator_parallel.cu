@@ -15,6 +15,7 @@ using namespace std;
 #define NO_MEAN
 #define GPU
 #define WARP
+//#define DEBUG
 
 //#define Total_Trace 1024
 
@@ -56,10 +57,12 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
   while (index < Total_Trace)
   {
     rob= &rob_d[index];
+    //printf("Rob: %d\n",index);
     Tick curTick = curTick_d[index];
     Tick lastFetchTick = lastFetchTick_d[index];
     input_Ptr= inputPtr + ML_SIZE * index;  
     if(warpTID==0){
+	    //printf("Rob: %d\n",index);
 	    memcpy(&rob->insts[rob->tail], &insts[index], sizeof(Inst));
       }
      __syncwarp();
@@ -67,9 +70,12 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
     {
       //printf("Rob Pointer: %p, dec tail: %d\n",&rob->insts[(rob->tail)],(rob->tail));
       if (status[index]==0)
-      { int retired = rob->retire_until(curTick);}
+      { int retired = rob->retire_until(curTick);
+#ifdef DEBUG
+	      printf("Retire until: %ld, Retired: %d\n",curTick,retired);
+#endif
+      }
       rob->add();
-      //printf("Index: %d, Tail: %d, Curtick: %ld, lastFetchTick: %ld\n", index, rob->tail, curTick, lastFetchTick);
     }
     //printf("Update: ROB: %d, thread: %d, head:%d, tail: %d, newIndex: %d\n", index, threadIdx.x, rob->head, rob->tail, (index + gridDim.x * blockDim.x));
     __syncwarp();
@@ -82,14 +88,17 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
     __syncwarp();
     //if(TID==0){printf("update completed\n"); }
     if(warpTID==0) 
-    //{ printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);}
+    { //printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);
+    }
     __syncwarp();
     rob->make_input_data(input_Ptr, curTick, factor, default_val);
+#ifdef DEBUG
     if (warpTID == 0)
     {
-      //printf("Input_Ptr\n");
-      //dis(input_Ptr, TD_SIZE, 6);
+      printf("Input_Ptr\n");
+      dis(input_Ptr, TD_SIZE, 6);
     }
+#endif
     __syncwarp();
     index += Total;
   }
@@ -141,7 +150,9 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     float finish_lat = output[offset + 1] * factor[3] + mean[3];
     int int_fetch_lat = round(fetch_lat);
     int int_finish_lat = round(finish_lat);
+    #ifdef DEBUG
     printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
+    #endif
     if (int_fetch_lat < 0)
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
@@ -162,23 +173,23 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     {
 	    status[index]=1;
       nextFetchTick = curTick[index] + int_fetch_lat;
-    	printf("Break with int fetch\n");
+    	//printf("Break with int fetch\n");
     }
     else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     if ((rob->is_full() || rob->saturated) && int_fetch_lat)
     {
       curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
-      printf("getting max\n");
+      //printf("getting max\n");
     }
     else if (int_fetch_lat)
     {
       curTick[index] = nextFetchTick;
-      printf("fastforward ot fetch\n");
+      //printf("fastforward ot fetch\n");
     }
     else if (rob->saturated || rob->is_full())
     {
       curTick[index] = rob[tail].getHead()->completeTick;
-      printf("fastforward to retire\n");
+      //printf("fastforward to retire\n");
     }
 
     //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
@@ -381,7 +392,7 @@ while (iteration < Batch_size){
   double check1 = wtime();
   H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
   double check2 = wtime();
-  preprocess<<<1, 32>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
+  preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   double check3 = wtime();
   //context->enqueue(Total_Trace, buffers.data(), 0, nullptr); 
@@ -390,7 +401,7 @@ while (iteration < Batch_size){
   cudaStreamSynchronize(0);
   //cout<<"Inference done\n";
 
-  update<<<1,32>>>(rob_d, output, factor_d, mean_d, curTick, lastFetchTick, status, Total_Trace);
+  update<<<4096,32>>>(rob_d, output, factor_d, mean_d, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   iteration++;
 }

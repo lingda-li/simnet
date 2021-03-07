@@ -212,7 +212,7 @@ struct ROB
       context = start_context - i;
       context = (context >= 0) ? context : context + ROBSIZE;
       //printf("warpTID:%d, Context: %d, curTick: %ld, %.2f\n", warpTID, context, curTick, inst[COMPLETETICK]);
-      if (insts[context].completeTick <= (float)curTick)
+      if (insts[context].completeTick <= curTick)
       {
         //printf("COntext: %d, warpTID: %d, Curtick: %ld, Inst: %.2f,continue\n", context, warpTID, curTick, inst[COMPLETETICK]);
         i += WARPSIZE;
@@ -238,7 +238,8 @@ struct ROB
     int curr = dec(tail);
     int start_context = dec(dec(tail));
     int end_context = dec(head);
-    if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d\n",head,tail,dec(tail));}
+    int W= threadIdx.x/WARPSIZE;
+    //if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d\n",head,tail,dec(tail));}
     assert(!is_empty());
     saturated = false;
     __shared__ int num[4];
@@ -250,17 +251,14 @@ struct ROB
     Addr addrEnd = insts[dec(tail)].addrEnd;
     //if(warpTID==0){printf(" ROB:%p, PC: %ld, isAddr: %ld, addr: %ld\n",(void *)&insts[dec(tail)], pc, isAddr, addr);}
     Addr iwalkAddr[3], dwalkAddr[3];
-    
     for (int i = 0; i < 3; i++) {
       num[i]=0;
       iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
       dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
-    }
-    
+    } 
     __syncwarp();
     int i = warpTID;
     //if(warpTID==0){printf("Inst\n");dis(insts[dec(tail)].train_data,TD_SIZE,1);}
-    
     while (i < length)
     {
       int context = start_context - i;
@@ -272,7 +270,7 @@ struct ROB
       	i+=WARPSIZE;
 	continue;
       }
-      if (num[warpID] >= CONTEXTSIZE)
+      if (num[W] >= CONTEXTSIZE)
       	{	
 		//printf("context: %d, %.2f, %ld\n" ,i,inst[COMPLETETICK],tick);
         	saturated = true;
@@ -294,14 +292,16 @@ struct ROB
       insts[context].train_data[DLINEC_BIT] = (isAddr && insts[context].isAddr && (addr & ~0x3f) == (insts[context].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0; 
       conflict = 0;
       if (isAddr && insts[context].isAddr)
-       {for (int j = 0; j < 3; j++)
+        for (int j = 0; j < 3; j++)
         {
         if (insts[context].dwalkAddr[j] != 0 && insts[context].dwalkAddr[j] == dwalkAddr[j])  
             conflict++;
-        }}
+        }
       insts[context].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];     
+      #ifdef DEBUG
       printf("context: %d,ilinec: %.2f,ipagec: %.2f,daddr: %.2f,dlinec: %.2f,dpagec: %.2f\n",context,insts[context].train_data[ILINEC_BIT],insts[context].train_data[IPAGEC_BIT],insts[context].train_data[DADDRC_BIT],insts[context].train_data[DLINEC_BIT],insts[context].train_data[DPAGEC_BIT]);
-      int poss= atomicAdd(&num[warpID], 1);
+	#endif
+      int poss= atomicAdd(&num[W], 1);
       //{printf("Poss: %d\n",poss);}
       i += WARPSIZE;
     }
@@ -313,7 +313,7 @@ struct ROB
     { 
       int j = dec(tail);
       int k=0;     
-      while (k <= num[warpID])
+      while (k <= num[W])
       {
         //inputs[i + k * TD_SIZE]= insts[k].train_data[i];
         //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", k,i,i+j*TD_SIZE,warpTID, inputs[i+j* TD_SIZE]);
@@ -329,7 +329,7 @@ struct ROB
     i = warpTID;
     while (i < TD_SIZE)
     {
-      int j = num[warpID] + 1;
+      int j = num[W] + 1;
       while (j < CONTEXTSIZE)
       {
         inputs[i + j * TD_SIZE] = default_val[i];
