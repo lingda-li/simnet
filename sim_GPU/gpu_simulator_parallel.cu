@@ -58,39 +58,37 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
     rob= &rob_d[index];
     Tick curTick = curTick_d[index];
     Tick lastFetchTick = lastFetchTick_d[index];
-    input_Ptr= inputPtr + ML_SIZE * index;
-   
+    input_Ptr= inputPtr + ML_SIZE * index;  
     if(warpTID==0){
 	    memcpy(&rob->insts[rob->tail], &insts[index], sizeof(Inst));
       }
      __syncwarp();
-    //if(warpTID==0) { printf("Inpt: %d\n",warpID);}
-    if (warpTID == 0)
+     if (warpTID == 0)
     {
       //printf("Rob Pointer: %p, dec tail: %d\n",&rob->insts[(rob->tail)],(rob->tail));
       if (status[index]==0)
       { int retired = rob->retire_until(curTick);}
       rob->add();
-      printf("Index: %d, Tail: %d, Curtick: %ld, lastFetchTick: %ld\n", index, rob->tail, curTick, lastFetchTick);
+      //printf("Index: %d, Tail: %d, Curtick: %ld, lastFetchTick: %ld\n", index, rob->tail, curTick, lastFetchTick);
     }
     //printf("Update: ROB: %d, thread: %d, head:%d, tail: %d, newIndex: %d\n", index, threadIdx.x, rob->head, rob->tail, (index + gridDim.x * blockDim.x));
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      if(warpTID==0){printf("update fetch\n");}
-      //rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor, rob_pointer);
+      //if(warpTID==0){printf("update fetch\n");}
+      rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
     }
     __syncwarp();
     //if(TID==0){printf("update completed\n"); }
     if(warpTID==0) 
-    { printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);}
+    //{ printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);}
     __syncwarp();
     rob->make_input_data(input_Ptr, curTick, factor, default_val);
     if (warpTID == 0)
     {
-      printf("Input_Ptr\n");
-      dis(input_Ptr, TD_SIZE, 4);
+      //printf("Input_Ptr\n");
+      //dis(input_Ptr, TD_SIZE, 6);
     }
     __syncwarp();
     index += Total;
@@ -138,11 +136,12 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     int rob_offset = ROBSIZE * INST_SIZE * index;
     int context_offset = rob->dec(rob->tail) * INST_SIZE;
     //float *rob_pointer = insts + rob_offset + context_offset;
-    printf("CurTick: %ld, Fetch: %.4f, Finish: %.4f\n ",curTick[index],output[offset+0],output[offset+1]);
+    //printf("%ld, %.3f, %.3f\n ",curTick[index],output[offset+0],output[offset+1]);
     float fetch_lat = output[offset + 0] * factor[1] + mean[1];
     float finish_lat = output[offset + 1] * factor[3] + mean[3];
     int int_fetch_lat = round(fetch_lat);
     int int_finish_lat = round(finish_lat);
+    printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
     if (int_fetch_lat < 0)
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
@@ -163,19 +162,23 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     {
 	    status[index]=1;
       nextFetchTick = curTick[index] + int_fetch_lat;
+    	printf("Break with int fetch\n");
     }
     else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     if ((rob->is_full() || rob->saturated) && int_fetch_lat)
     {
       curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
+      printf("getting max\n");
     }
     else if (int_fetch_lat)
     {
       curTick[index] = nextFetchTick;
+      printf("fastforward ot fetch\n");
     }
     else if (rob->saturated || rob->is_full())
     {
       curTick[index] = rob[tail].getHead()->completeTick;
+      printf("fastforward to retire\n");
     }
 
     //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
@@ -282,7 +285,7 @@ std::vector<nvinfer1::Dims> output_dims;
 for (size_t i = 0; i < engine->getNbBindings(); ++i)
 {
   auto binding_size = getSizeByDim(engine->getBindingDimensions(i)) * sizeof(float);
-  std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
+  //std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
   //cudaMalloc(&buffers[i], binding_size);
   if (engine->bindingIsInput(i))
   {
@@ -304,14 +307,14 @@ H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * ML_SIZE * Total_Trace));
 H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 2));
 buffers[0] = inputPtr;
 buffers[1] = output;
-cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
+//cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *trace;
 Tick *aux_trace;
 trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 int Batch_size = Instructions / Total_Trace;
-cout << " Iterations: " << Batch_size << endl;
+//cout << " Iterations: " << Batch_size << endl;
 //cout<<"Parameters read..\n";
 omp_set_num_threads(96);
 double measured_time = 0.0;

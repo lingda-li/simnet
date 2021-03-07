@@ -248,7 +248,7 @@ struct ROB
     int isAddr = insts[dec(tail)].isAddr;
     Addr addr = insts[dec(tail)].addr;
     Addr addrEnd = insts[dec(tail)].addrEnd;
-    if(warpTID==0){printf(" ROB:%p, PC: %ld, isAddr: %ld, addr: %ld\n",(void *)&insts[dec(tail)], pc, isAddr, addr);}
+    //if(warpTID==0){printf(" ROB:%p, PC: %ld, isAddr: %ld, addr: %ld\n",(void *)&insts[dec(tail)], pc, isAddr, addr);}
     Addr iwalkAddr[3], dwalkAddr[3];
     
     for (int i = 0; i < 3; i++) {
@@ -280,7 +280,7 @@ struct ROB
       	}
       // Update context instruction bits.
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
-      printf("Context: %d, PC: %ld, instPC: %.2f, traindata: %.2f \n", context, pc, insts[context].pc, insts[context].train_data[ILINEC_BIT]);
+      //printf("Context: %d, PC: %ld, instPC: %.2f, traindata: %.2f \n", context, pc, insts[context].pc, insts[context].train_data[ILINEC_BIT]);
       int conflict = 0;
       //if(isAddr && inst[ISADDR]){
       for (int j = 0; j < 3; j++)
@@ -291,21 +291,22 @@ struct ROB
       }
       insts[context].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
       insts[context].train_data[DADDRC_BIT] = (isAddr && insts[context].isAddr && addrEnd >= insts[context].addr && addr <= insts[context].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
-      insts[context].train_data[DLINEC_BIT] = (isAddr && insts[i].isAddr && (addr & ~0x3f) == (insts[i].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0; 
+      insts[context].train_data[DLINEC_BIT] = (isAddr && insts[context].isAddr && (addr & ~0x3f) == (insts[context].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0; 
       conflict = 0;
       if (isAddr && insts[context].isAddr)
        {for (int j = 0; j < 3; j++)
         {
-        if (insts[i].dwalkAddr[j] != 0 && insts[i].dwalkAddr[j] == dwalkAddr[j])  
+        if (insts[context].dwalkAddr[j] != 0 && insts[context].dwalkAddr[j] == dwalkAddr[j])  
             conflict++;
         }}
-      insts[i].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];     
+      insts[context].train_data[DPAGEC_BIT] = (float)conflict / factor[DPAGEC_BIT];     
+      printf("context: %d,ilinec: %.2f,ipagec: %.2f,daddr: %.2f,dlinec: %.2f,dpagec: %.2f\n",context,insts[context].train_data[ILINEC_BIT],insts[context].train_data[IPAGEC_BIT],insts[context].train_data[DADDRC_BIT],insts[context].train_data[DLINEC_BIT],insts[context].train_data[DPAGEC_BIT]);
       int poss= atomicAdd(&num[warpID], 1);
       //{printf("Poss: %d\n",poss);}
       i += WARPSIZE;
     }
     __syncwarp();
-    if(warpTID==0){printf("*********Copy context values.***********. Start: %d, end: %d\n",dec(tail), num[warpID]);}
+    //if(warpTID==0){printf("*********Copy context values.***********. Start: %d, end: %d\n",dec(tail), num[warpID]);}
     i = warpTID;
     //int cus_T= 0;
     while (i < TD_SIZE)
@@ -324,7 +325,7 @@ struct ROB
     }
     __syncwarp();
     //printf("Here. 2\n");
-    if(warpTID==0){printf("************Adding default values.*****************. Start: %d\n",num[warpID]);}
+    //if(warpTID==0){printf("************Adding default values.*****************. Start: %d\n",num[warpID]);}
     i = warpTID;
     while (i < TD_SIZE)
     {
