@@ -66,7 +66,9 @@ class ComDataset(Dataset):
 class QQDataset(Dataset):
 
     def __init__(self, file_name, rows, columns, start, end, stride=1, batch_size=1, num_classes=10, stat_file_name=None):
-        self.arr = np.memmap(file_name, dtype=np.float32,
+        #self.arr = np.memmap(file_name, dtype=np.float32,
+        #                     mode='r', shape=(rows, columns))
+        self.arr = np.memmap(file_name, dtype=np.uint16,
                              mode='r', shape=(rows, columns))
         if (end - start) % (batch_size * stride) != 0:
             raise AttributeError("Size is not aligned.")

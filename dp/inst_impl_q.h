@@ -124,6 +124,87 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   return true;
 }
 
+bool Inst::read(ifstream &Trace) {
+  Trace >> dec >> sqIdx >> inTick >> completeTick >> outTick;
+  if (Trace.eof()) {
+    return false;
+  }
+  storeTick = 0;
+  ifstream *trace = &Trace;
+
+  // Read instruction type and etc.
+  *trace >> op >> isMicroOp >> isCondCtrl >> isUncondCtrl >> isDirectCtrl >>
+      isSquashAfter >> isSerializeAfter >> isSerializeBefore;
+  *trace >> isAtomic >> isStoreConditional >> isMemBar >> isQuiesce >>
+      isNonSpeculative;
+  assert(inTick == 0 && completeTick == 0 && outTick == 0);
+  assert((isMicroOp == 0 || isMicroOp == 1) &&
+         (isCondCtrl == 0 || isCondCtrl == 1) &&
+         (isUncondCtrl == 0 || isUncondCtrl == 1) &&
+         (isDirectCtrl == 0 || isDirectCtrl == 1) &&
+         (isSquashAfter == 0 || isSquashAfter == 1) &&
+         (isSerializeAfter == 0 || isSerializeAfter == 1) &&
+         (isSerializeBefore == 0 || isSerializeBefore == 1) &&
+         (isAtomic == 0 || isAtomic == 1) &&
+         (isStoreConditional == 0 || isStoreConditional == 1) &&
+         (isMemBar == 0 || isMemBar == 1) &&
+         (isQuiesce == 0 || isQuiesce == 1) &&
+         (isNonSpeculative == 0 || isNonSpeculative == 1));
+#ifdef COMBINE_OP
+  combineOp();
+#endif
+
+  // Read source and destination registers.
+  *trace >> srcNum;
+  for (int i = 0; i < srcNum; i++) {
+    *trace >> srcClass[i] >> srcIndex[i];
+    assert(srcClass[i] <= MAXREGCLASS);
+    assert(srcClass[i] == MAXREGCLASS || srcIndex[i] < MAXREGIDX);
+  }
+  *trace >> destNum;
+  for (int i = 0; i < destNum; i++) {
+    *trace >> destClass[i] >> destIndex[i];
+    assert(destClass[i] <= MAXREGCLASS);
+    assert(destClass[i] == MAXREGCLASS || destIndex[i] < MAXREGIDX);
+  }
+  assert(srcNum <= SRCREGNUM && destNum <= DSTREGNUM);
+
+  // Read data memory access info.
+  *trace >> isAddr;
+  *trace >> hex >> addr;
+  *trace >> dec >> size >> depth;
+  if (isAddr)
+    addrEnd = addr + size - 1;
+  else {
+    addrEnd = 0;
+    //depth = -1;
+  }
+  for (int i = 0; i < 3; i++)
+    *trace >> dwalkDepth[i];
+  assert((dwalkDepth[0] == -1 && dwalkDepth[1] == -1 && dwalkDepth[2] == -1) ||
+         isAddr);
+  for (int i = 0; i < 3; i++) {
+    *trace >> hex >> dwalkAddr[i];
+    assert(dwalkAddr[i] == 0 || dwalkDepth[i] != -1);
+  }
+  for (int i = 0; i < 3; i++)
+    *trace >> dec >> dWritebacks[i];
+
+  // Read instruction memory access info.
+  *trace >> hex >> pc;
+  *trace >> dec >> isMisPredict >> fetchDepth;
+  for (int i = 0; i < 3; i++)
+    *trace >> iwalkDepth[i];
+  for (int i = 0; i < 3; i++) {
+    *trace >> hex >> iwalkAddr[i];
+    assert(iwalkAddr[i] == 0 || iwalkDepth[i] != -1);
+  }
+  for (int i = 0; i < 2; i++)
+    *trace >> dec >> iWritebacks[i];
+  assert(!Trace.eof());
+  return true;
+}
+
 void printOP(Inst *i) {
   fprintf(stderr, "OP: %d %d %d %d %d %d %d : %d %d %d %d %d %d\n", i->op,
           i->isUncondCtrl, i->isCondCtrl, i->isDirectCtrl, i->isSquashAfter,

@@ -81,7 +81,7 @@ struct Inst {
       assert(aux_trace.eof());
       return false;
     }
-    assert(trueCompleteTick >= MIN_COMP_LAT);
+    assert(trueCompleteTick >= MIN_COMP_LAT || trueCompleteTick == 0);
     assert(trueStoreTick == 0 || trueStoreTick >= MIN_ST_LAT);
     for (int i = 3; i < TD_SIZE; i++) {
       trace >> train_data[i];
@@ -471,7 +471,6 @@ int main(int argc, char *argv[]) {
     } else if (curTick < nextFetchTick) {
       Tick nextCommitTick = max(rob->getHead()->completeTick, curTick + 1);
       curTick = min(nextCommitTick, nextFetchTick);
-      Case3++;
       if (curTick == nextFetchTick)
         Case3++;
       else
