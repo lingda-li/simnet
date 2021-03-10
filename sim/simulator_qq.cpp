@@ -32,6 +32,9 @@ using namespace std;
 #define MIN_ST_LAT 10
 #define CLASS_NUM 10
 
+#define INSQ_BIT 4
+#define ATOMIC_BIT 13
+#define SC_BIT 14
 #define ILINEC_BIT 33
 #define IPAGEC_BIT 37
 #define DADDRC_BIT 41
@@ -59,7 +62,8 @@ struct Inst {
   Addr addrEnd;
   Addr iwalkAddr[3];
   Addr dwalkAddr[3];
-  int inSQ() { return train_data[4]; }
+  bool inSQ() { return (bool)train_data[INSQ_BIT]; }
+  bool isStore() { return (bool)train_data[INSQ_BIT] || (bool)train_data[ATOMIC_BIT] || (bool)train_data[SC_BIT]; }
   void init(Inst &copy) {
     std::copy(copy.train_data, copy.train_data + TD_SIZE, train_data);
     inTick = copy.inTick;
@@ -224,10 +228,10 @@ struct Queue {
 
 int main(int argc, char *argv[]) {
 #ifdef CLASSIFY
-  if (argc != 6) {
+  if (argc < 6) {
     cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <class module> <# inst>" << endl;
 #else
-  if (argc != 5) {
+  if (argc < 5) {
     cerr << "Usage: ./simulator_qq <trace> <aux trace> <module> <# inst>" << endl;
 #endif
     return 0;
@@ -272,6 +276,13 @@ int main(int argc, char *argv[]) {
   }
 #endif
   unsigned long long total_num = atol(argv[arg_idx++]);
+  bool  is_scale_pred = false;
+  double scale_factor;
+  if (arg_idx < argc) {
+    is_scale_pred = true;
+    scale_factor = atof(argv[arg_idx++]);
+    cout << "Scale prediction with " << scale_factor << "\n";
+  }
 
   for (int i = 0; i < TD_SIZE; i++) {
     default_val[i] = 0;
@@ -411,12 +422,6 @@ int main(int argc, char *argv[]) {
       int_fetch_lat = round(fetch_lat);
       int int_complete_lat = round(complete_lat);
       int int_store_lat = round(store_lat);
-      if (int_fetch_lat < 0)
-        int_fetch_lat = 0;
-      if (int_complete_lat < MIN_COMP_LAT)
-        int_complete_lat = MIN_COMP_LAT;
-      if (int_store_lat < MIN_ST_LAT)
-        int_store_lat = MIN_ST_LAT;
 #if defined(CLASSIFY) || defined(COMBINED)
       if (classes[0] <= 8)
         int_fetch_lat = classes[0];
@@ -427,22 +432,35 @@ int main(int argc, char *argv[]) {
       else if (classes[2] <= 8 )
         int_store_lat = classes[2] + MIN_ST_LAT - 1;
 #endif
-      if (!newInst->inSQ())
-        int_store_lat = 0;
       //std::cout << curTick << ": ";
       //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
       //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
-      totalFetchDiff += (long)newInst->trueFetchTick - int_fetch_lat;
-      totalAbsFetchDiff += abs((long)newInst->trueFetchTick - int_fetch_lat);
-      totalCompleteDiff+= (long)newInst->trueCompleteTick - int_complete_lat;
-      totalAbsCompleteDiff += abs((long)newInst->trueCompleteTick - int_complete_lat);
-      totalStoreDiff += (long)newInst->trueStoreTick - int_store_lat;
-      totalAbsStoreDiff += abs((long)newInst->trueStoreTick - int_store_lat);
 #ifdef DUMP_ML_INPUT
       int_fetch_lat = newInst->trueFetchTick;
       int_complete_lat = newInst->trueCompleteTick;
       int_store_lat = newInst->trueStoreTick;
 #endif
+      if (is_scale_pred) {
+        int_fetch_lat += round(((int)newInst->trueFetchTick - int_fetch_lat) * scale_factor);
+        int_complete_lat += round(((int)newInst->trueCompleteTick - int_complete_lat) * scale_factor);
+        int_store_lat += round(((int)newInst->trueStoreTick - int_store_lat) * scale_factor);
+      }
+      // Calibrate latency.
+      if (int_fetch_lat < 0)
+        int_fetch_lat = 0;
+      if (int_complete_lat < MIN_COMP_LAT)
+        int_complete_lat = MIN_COMP_LAT;
+      if (!newInst->isStore()) {
+        assert(newInst->trueStoreTick == 0);
+        int_store_lat = 0;
+      } else if (int_store_lat < MIN_ST_LAT)
+        int_store_lat = MIN_ST_LAT;
+      totalFetchDiff += (int)newInst->trueFetchTick - int_fetch_lat;
+      totalAbsFetchDiff += abs((int)newInst->trueFetchTick - int_fetch_lat);
+      totalCompleteDiff+= (int)newInst->trueCompleteTick - int_complete_lat;
+      totalAbsCompleteDiff += abs((int)newInst->trueCompleteTick - int_complete_lat);
+      totalStoreDiff += (int)newInst->trueStoreTick - int_store_lat;
+      totalAbsStoreDiff += abs((int)newInst->trueStoreTick - int_store_lat);
       newInst->train_data[0] = -int_fetch_lat;
       newInst->train_data[1] = int_complete_lat;
       newInst->train_data[2] = int_store_lat;
