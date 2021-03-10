@@ -127,7 +127,9 @@ def main():
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--no-class', action='store_true', default=False,
-                        help='disables classification ')
+                        help='disables classification')
+    parser.add_argument('--no-save', action='store_true', default=False,
+                        help='do not save model')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--checkpoints', required=True)
@@ -153,7 +155,8 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     model.to(device)
     test(args, model, device, test_loader)
-    save_ts_model(args.checkpoints, model)
+    if not args.no_save:
+        save_ts_model(args.checkpoints, model)
 
 
 if __name__ == '__main__':
