@@ -257,6 +257,7 @@ int main(int argc, char *argv[]) {
   }
   catch (const c10::Error& e) {
     cerr << "error loading the model\n";
+    cerr << e.msg() << endl;
     return 0;
   }
   int arg_idx = 4;
@@ -272,6 +273,7 @@ int main(int argc, char *argv[]) {
   }
   catch (const c10::Error& e) {
     cerr << "error loading the model\n";
+    cerr << e.msg() << endl;
     return 0;
   }
 #endif
