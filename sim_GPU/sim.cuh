@@ -98,9 +98,9 @@ struct Inst
     addr = aux_trace[2];
     addrEnd = aux_trace[3];
     for (int i = 0; i < 3; i++)
-      iwalkAddr[i] = aux_trace[3 + i];
+      iwalkAddr[i] = aux_trace[4 + i];
     for (int i = 0; i < 3; i++)
-      dwalkAddr[i] = aux_trace[6 + i]; 
+      dwalkAddr[i] = aux_trace[7 + i]; 
     for (int i = 0; i < TD_SIZE; i++)
     {
     } //cout << train_data[i] << " ";
@@ -118,30 +118,35 @@ struct ROB
   bool saturated = false;
   __host__ __device__ int inc(int input)
   {
-    if (input == ROBSIZE)
-      return 0;
-    else
-      return input + 1;
+    if (input == (ROBSIZE-1)){
+      //printf("Input: 400, Inc from %d to %d\n", input, 0);
+      return 0;}
+    else{
+      //printf("Inc from %d to %d\n", input, input+1);
+      return input + 1;}
   }
+ 
 
   __host__ __device__ int dec(int input)
   {
-    if (input == 0)
-      return ROBSIZE;
-    else
-      return input - 1;
+    if (input == 0){
+      //printf("Input: 0, Dec from %d to %d\n", input, ROBSIZE);
+	    return (ROBSIZE-1);}
+    else{
+      //printf("Dec from %d to %d\n", input, input-1);
+      return input - 1;}
   }
   __host__ __device__ bool is_empty() { return head == tail; }
   __host__ __device__ bool is_full() { return head == inc(tail); }
 
-  __host__ __device__ int add()
+  __host__ __device__ Inst *add()
   {
     assert(!is_full());
     int old_tail = tail;
     tail = inc(tail);
     len += 1;
     //printf("index updated.\n");
-    return old_tail;
+    return &insts[old_tail];
   }
 
   __device__ Inst *getHead()
@@ -160,13 +165,16 @@ struct ROB
     assert(!is_empty());
     head = inc(head);
     len -= 1;
+    printf("len decreased to retire: %d\n",len);
   }
 
   __device__ int retire_until(Tick tick)
   {
     int retired = 0;
+    printf("Head: %d, Head Tick: %lu, Tick: %lu\n",head,insts[head].completeTick,tick);
     while (!is_empty() && insts[head].completeTick <= tick)
     {
+      printf("Retire\n");
       retire();
       retired++;
     }
@@ -180,7 +188,7 @@ struct ROB
     {
       for (int j = 0; j < size; j++)
       {
-        printf("%.1f  ", data[i * size + j]);
+        printf("%.3f  ", data[i * size + j]);
       }
       printf("\n");
     }
@@ -239,7 +247,8 @@ struct ROB
     int start_context = dec(dec(tail));
     int end_context = dec(head);
     int W= threadIdx.x/WARPSIZE;
-    //if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d\n",head,tail,dec(tail));}
+    if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d, len: %d\n",head,tail,dec(tail),len);}
+    __syncwarp();
     assert(!is_empty());
     saturated = false;
     __shared__ int num[4];
@@ -252,18 +261,19 @@ struct ROB
     //if(warpTID==0){printf(" ROB:%p, PC: %ld, isAddr: %ld, addr: %ld\n",(void *)&insts[dec(tail)], pc, isAddr, addr);}
     Addr iwalkAddr[3], dwalkAddr[3];
     for (int i = 0; i < 3; i++) {
-      num[i]=0;
+      num[i]=1;
       iwalkAddr[i] = insts[dec(tail)].iwalkAddr[i];
       dwalkAddr[i] = insts[dec(tail)].dwalkAddr[i];
-    } 
-    __syncwarp();
+    }
+   if(warpTID==0){memcpy(inputs, insts[dec(tail)].train_data, sizeof(float)*TD_SIZE);}
+   //printf("%.2f, %.2f\n",inputs[warpTID],insts[dec(tail)].train_data[warpTID]); 
+   __syncwarp();
     int i = warpTID;
     //if(warpTID==0){printf("Inst\n");dis(insts[dec(tail)].train_data,TD_SIZE,1);}
     while (i < length)
     {
       int context = start_context - i;
       context = (context >= 0) ? context : context + ROBSIZE;
-      //printf("Updat: ThreadID: %d, inst id: %d\n", warpTID, i);
       if (insts[context].completeTick <= tick)
       {
       	//{i+=WARPSIZE; printf("context: %d, %.2f, %ld\n",i,inst[COMPLETETICK],tick);continue;}
@@ -278,15 +288,15 @@ struct ROB
       	}
       // Update context instruction bits.
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 / factor[ILINEC_BIT] : 0.0;
-      //printf("Context: %d, PC: %ld, instPC: %.2f, traindata: %.2f \n", context, pc, insts[context].pc, insts[context].train_data[ILINEC_BIT]);
-      int conflict = 0;
-      //if(isAddr && inst[ISADDR]){
-      for (int j = 0; j < 3; j++)
-      {
-        //if (inst[j] != 0 && inst[j] == iwalkAddr[j])
-        if (insts[context].iwalkAddr[j] != 0 && insts[context].iwalkAddr[j] == iwalkAddr[j])
-		conflict++;
-      }
+       int conflict = 0;
+       for (int j = 0; j < 3; j++){
+         if (insts[context].iwalkAddr[j] != 0 && insts[context].iwalkAddr[j] == iwalkAddr[j])
+         conflict++;
+#ifdef DEBUG
+	 printf("context: %d, j: %d, %lu, %lu, %lu,conflict: %d\n", context,j,insts[context].iwalkAddr[j],insts[context].iwalkAddr[j],iwalkAddr[j] ,conflict);
+#endif
+       }
+      //printf("context: %d, conflict: %d\n", context, conflict);
       insts[context].train_data[IPAGEC_BIT] = (float)conflict / factor[IPAGEC_BIT];
       insts[context].train_data[DADDRC_BIT] = (isAddr && insts[context].isAddr && addrEnd >= insts[context].addr && addr <= insts[context].addrEnd) ? 1.0 / factor[DADDRC_BIT] : 0.0;
       insts[context].train_data[DLINEC_BIT] = (isAddr && insts[context].isAddr && (addr & ~0x3f) == (insts[context].addr & ~0x3f)) ? 1.0 / factor[DLINEC_BIT] : 0.0; 
@@ -302,11 +312,14 @@ struct ROB
       printf("context: %d,ilinec: %.2f,ipagec: %.2f,daddr: %.2f,dlinec: %.2f,dpagec: %.2f\n",context,insts[context].train_data[ILINEC_BIT],insts[context].train_data[IPAGEC_BIT],insts[context].train_data[DADDRC_BIT],insts[context].train_data[DLINEC_BIT],insts[context].train_data[DPAGEC_BIT]);
 	#endif
       int poss= atomicAdd(&num[W], 1);
+      //printf("Context: %d, poss: %d\n",context,poss);
+      memcpy(&inputs[poss*TD_SIZE],&insts[context].train_data,  sizeof(float)*TD_SIZE);
       //{printf("Poss: %d\n",poss);}
       i += WARPSIZE;
     }
     __syncwarp();
     //if(warpTID==0){printf("*********Copy context values.***********. Start: %d, end: %d\n",dec(tail), num[warpID]);}
+    /*
     i = warpTID;
     //int cus_T= 0;
     while (i < TD_SIZE)
@@ -317,19 +330,21 @@ struct ROB
       {
         //inputs[i + k * TD_SIZE]= insts[k].train_data[i];
         //printf("Context: %d, index: %d,pos: %d, thread: %d, write: %.2f\n", k,i,i+j*TD_SIZE,warpTID, inputs[i+j* TD_SIZE]);
-        inputs[i + k * TD_SIZE]= insts[j].train_data[i];
+       inputs[i + k * TD_SIZE]= insts[j].train_data[i];
 	      j= dec(j);
 	k++;
       }
       i+= WARPSIZE;
     }
     __syncwarp();
+    
+   */ 
     //printf("Here. 2\n");
-    //if(warpTID==0){printf("************Adding default values.*****************. Start: %d\n",num[warpID]);}
+    //if(warpTID==0){printf("************Adding default values.*****************. Start: %d\n",num[W]);}
     i = warpTID;
     while (i < TD_SIZE)
     {
-      int j = num[W] + 1;
+      int j = num[W] ;
       while (j < CONTEXTSIZE)
       {
         inputs[i + j * TD_SIZE] = default_val[i];
