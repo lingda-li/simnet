@@ -36,6 +36,30 @@ Tick Num = 0;
     }
   }
 
+__device__ Tick
+max(float x, Tick y)
+{
+  if (x > y)
+  {
+    return x;
+  }
+  else
+  {
+    return y;
+  }
+}
+
+__global__ void
+result(Tick *curTick, int Total_Trace, int instructions)
+{
+  Tick sum = 0;
+  for (int i = 0; i < Total_Trace; i++)
+  {
+    sum += curTick[i];
+    //printf("Trace: %d, curTick: %lu\n", i, curTick[i]);
+  }
+  printf("~~~~~~~~~%d instructions finish by %ld ~~~~~~~~~\n", instructions, sum);
+}
 
 __global__ void
 preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, Tick *curTick_d, Tick *lastFetchTick_d, int *status, int Total_Trace)
@@ -57,80 +81,60 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
   while (index < Total_Trace)
   {
     rob= &rob_d[index];
-    //printf("Rob: %d\n",index);
+#ifdef DEBUG
+    if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
+#endif
     Tick curTick = curTick_d[index];
     Tick lastFetchTick = lastFetchTick_d[index];
     input_Ptr= inputPtr + ML_SIZE * index;  
-    if(warpTID==0){
-	    //printf("Rob: %d\n",index);
-	    memcpy(&rob->insts[rob->tail], &insts[index], sizeof(Inst));
-      }
-     __syncwarp();
-     if (warpTID == 0)
+    int old_head= rob->head;
+
+if (warpTID == 0)
     {
-      //printf("Rob Pointer: %p, dec tail: %d\n",&rob->insts[(rob->tail)],(rob->tail));
-      if (status[index]==0)
-      { int retired = rob->retire_until(curTick);
+      if (status[index]==1)
+      {         //printf("Before: Head: %d, len: %d,\n", rob->head, rob->len);
+              int retired = rob->retire_until(curTick); 
 #ifdef DEBUG
-	      printf("Retire until: %ld, Retired: %d\n",curTick,retired);
+              printf("Retire until: %ld, Retired: %d\n",curTick, retired);
 #endif
       }
-      rob->add();
     }
-    //printf("Update: ROB: %d, thread: %d, head:%d, tail: %d, newIndex: %d\n", index, threadIdx.x, rob->head, rob->tail, (index + gridDim.x * blockDim.x));
+
+        __syncwarp();
+    if(warpTID==0){
+             Inst *newInst = rob->add();
+            //printf("Rob pointer before: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
+            memcpy(newInst, &insts[index], sizeof(Inst));
+            //inst_copy(&rob->insts[rob->tail],&insts[index]);  
+#ifdef DEBUG
+	printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
+#endif
+    }
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      //if(warpTID==0){printf("update fetch\n");}
       rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
-    }
-    __syncwarp();
-    //if(TID==0){printf("update completed\n"); }
-    if(warpTID==0) 
-    { //printf("Make input: Warp: %d, assigned: %d,offset: %d, next: %d\n",warpID, index,ML_SIZE*index, index + Total);
-    }
+    } 
     __syncwarp();
     rob->make_input_data(input_Ptr, curTick, factor, default_val);
-//#ifdef DEBUG
+#ifdef DEBUG
     if (warpTID == 0)
     {
       printf("Input_Ptr\n");
       dis(input_Ptr, TD_SIZE, 6);
     }
-//#endif
+#endif
     __syncwarp();
     index += Total;
   }
 }
 
-__device__ Tick
-max(float x, Tick y)
-{
-  if (x > y)
-  {
-    return x;
-  }
-  else
-  {
-    return y;
-  }
-}
-
-__global__ void
-result(Tick *curTick, int Total_Trace, int instructions)
-{
-  Tick sum = 0;
-  for (int i = 0; i < Total_Trace; i++)
-  {
-    sum += curTick[i];
-  }
-  printf("~~~~~~~~~%d instructions finish by %ld ~~~~~~~~~\n", instructions, sum);
-}
-
 __global__ void
 update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tick *lastFetchTick, int *status, int Total_Trace)
 {
+  //float output[]={ 2.1987 ,0.4428,  0.0245 , 0.2029, 0.0094 , 0.1621};
+  //printf("Here\n");
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int index = TID;
   ROB *rob;
@@ -148,16 +152,16 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     float finish_lat = output[offset + 1] * factor[3] + mean[3];
     int int_fetch_lat = round(fetch_lat);
     int int_finish_lat = round(finish_lat);
-    //#ifdef DEBUG
+    #ifdef DEBUG
     printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
-    //#endif
+    #endif
     if (int_fetch_lat < 0)
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
       int_finish_lat = MIN_COMP_LAT;
     rob->insts[tail].train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
     rob->insts[tail].train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
-    rob->insts[tail].train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2]; 
+    rob->insts[tail].train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
     if (rob->insts[tail].train_data[2] >= 9 / factor[2])
     {
       rob->insts[tail].train_data[2] = 9 / factor[2];
@@ -165,31 +169,41 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     rob->insts[tail].train_data[3] = (int_finish_lat - mean[3]) / factor[3];
     //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
     rob->insts[tail].tickNum = int_finish_lat;
-    rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;    
+    rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;
     lastFetchTick[index] = curTick[index];
     if (int_fetch_lat)
     {
-	    status[index]=1;
+            status[index]=1;
       nextFetchTick = curTick[index] + int_fetch_lat;
-    	//printf("Break with int fetch\n");
+      #ifdef DEBUG  
+      printf("Break with int fetch\n");
+#endif
     }
     else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     if ((rob->is_full() || rob->saturated) && int_fetch_lat)
     {
       curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
-      //printf("getting max\n");
+      #ifdef DEBUG
+      printf("getting max\n");
+#endif
     }
     else if (int_fetch_lat)
     {
       curTick[index] = nextFetchTick;
-      //printf("fastforward ot fetch\n");
+      #ifdef DEBUG
+      printf("fastforward ot fetch\n");
+#endif
     }
     else if (rob->saturated || rob->is_full())
     {
       curTick[index] = rob[tail].getHead()->completeTick;
-      //printf("fastforward to retire\n");
+      #ifdef DEBUG
+      printf("fastforward to retire\n");
+#endif
     }
-
+    #ifdef DEBUG
+    printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
+#endif
     //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
     index += (gridDim.x * blockDim.x);
   }
@@ -378,8 +392,12 @@ int iteration = 0;
 gettimeofday(&total_start, NULL);
 double start_ = wtime();
 double red=0,pre=0, tr=0,inf=0,upd=0;
+#ifdef DEBUG
+FILE *pFile;
+pFile= fopen ("trtcustom.bin", "wb");
+#endif
 while (iteration < Batch_size){
-  cout << "\n Iteration: " << iteration << endl;
+  //if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
@@ -395,6 +413,12 @@ while (iteration < Batch_size){
   tr+= (check2-check1);
   preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
+#ifdef DEBUG
+  float *inp;
+  inp= (float*) malloc(ML_SIZE*Total_Trace*sizeof(float));
+  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
+  fwrite(inp, sizeof(float), ML_SIZE, pFile);
+#endif
   double check3 = wtime();
   pre+= (check3-check2);
   //context->enqueue(Total_Trace, buffers.data(), 0, nullptr); 
@@ -411,7 +435,11 @@ while (iteration < Batch_size){
   upd+=(check5-check4);
   iteration++;
 }
+#ifdef DEBUG
+  fclose(pFile);
+#endif
 printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
+printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red/Instructions*1000000, tr/Instructions*1000000, pre/Instructions*1000000, inf/Instructions*1000000, upd/Instructions*1000000);
 double end_ = wtime();
 for (void *buf : buffers)
 {

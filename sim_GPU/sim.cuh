@@ -165,16 +165,20 @@ struct ROB
     assert(!is_empty());
     head = inc(head);
     len -= 1;
+#ifdef DEBUG
     printf("len decreased to retire: %d\n",len);
+#endif
   }
 
   __device__ int retire_until(Tick tick)
   {
     int retired = 0;
+#ifdef DEBUG
     printf("Head: %d, Head Tick: %lu, Tick: %lu\n",head,insts[head].completeTick,tick);
+#endif
     while (!is_empty() && insts[head].completeTick <= tick)
     {
-      printf("Retire\n");
+      //printf("Retire\n");
       retire();
       retired++;
     }
@@ -247,7 +251,9 @@ struct ROB
     int start_context = dec(dec(tail));
     int end_context = dec(head);
     int W= threadIdx.x/WARPSIZE;
+#ifdef DEBUG
     if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d, len: %d\n",head,tail,dec(tail),len);}
+#endif
     __syncwarp();
     assert(!is_empty());
     saturated = false;

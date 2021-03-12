@@ -78,7 +78,9 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
   while (index < Total_Trace)
   {
     rob= &rob_d[index];
-    //if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
+#ifdef DEBUG
+    if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
+#endif
     Tick curTick = curTick_d[index];
     Tick lastFetchTick = lastFetchTick_d[index];
     input_Ptr= inputPtr + ML_SIZE * index;  
@@ -87,13 +89,12 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
 if (warpTID == 0)
     {
       if (status[index]==1)
-      {         //printf("Before: Head: %d, len: %d,\n", rob->head, rob->len);
+      {      
               int retired = rob->retire_until(curTick); 
 #ifdef DEBUG
               printf("Retire until: %ld, Retired: %d\n",curTick, retired);
 #endif
       }
-      //rob->add();
     }
 
 	__syncwarp();
@@ -102,7 +103,9 @@ if (warpTID == 0)
 	    //printf("Rob pointer before: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
 	    memcpy(newInst, &insts[index], sizeof(Inst));
     	    //inst_copy(&rob->insts[rob->tail],&insts[index]);  
-	    //printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
+#ifdef DEBUG
+	    printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
+#endif
     }
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
@@ -151,8 +154,6 @@ result(Tick *curTick, int Total_Trace, int instructions)
 __global__ void
 update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tick *lastFetchTick, int *status, int Total_Trace)
 {
-  //float output[]={ 2.1987 ,0.4428,  0.0245 , 0.2029, 0.0094 , 0.1621};
-  //printf("Here\n");
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int index = TID;
   ROB *rob;
@@ -170,9 +171,9 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     float finish_lat = output[offset + 1] * factor[3] + mean[3];
     int int_fetch_lat = round(fetch_lat);
     int int_finish_lat = round(finish_lat);
-    //#ifdef DEBUG
+    #ifdef DEBUG
     printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
-    //#endif
+    #endif
     if (int_fetch_lat < 0)
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
@@ -185,7 +186,9 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
       rob->insts[tail].train_data[2] = 9 / factor[2];
     }
     rob->insts[tail].train_data[3] = (int_finish_lat - mean[3]) / factor[3];
-    //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
+#ifdef DEBUG
+    printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
+#endif
     rob->insts[tail].tickNum = int_finish_lat;
     rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;    
     lastFetchTick[index] = curTick[index];
@@ -193,25 +196,25 @@ update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tic
     {
 	    status[index]=1;
       nextFetchTick = curTick[index] + int_fetch_lat;
-    	printf("Break with int fetch\n");
+    	//printf("Break with int fetch\n");
     }
     else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     if ((rob->is_full() || rob->saturated) && int_fetch_lat)
     {
       curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
-      printf("getting max\n");
+      //printf("getting max\n");
     }
     else if (int_fetch_lat)
     {
       curTick[index] = nextFetchTick;
-      printf("fastforward ot fetch\n");
+      //printf("fastforward ot fetch\n");
     }
     else if (rob->saturated || rob->is_full())
     {
       curTick[index] = rob[tail].getHead()->completeTick;
-      printf("fastforward to retire\n");
+      //printf("fastforward to retire\n");
     }
-    printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
+    //printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
     //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
     index += (gridDim.x * blockDim.x);
   }
@@ -317,13 +320,12 @@ torch::jit::script::Module lat_module;
     return 0;
   }
 
-
-at::Tensor input = torch::ones({1, ML_SIZE});
-float *inp= input.data_ptr<float>();
 //cout<<endl;
 int Total_Trace = atoi(argv[arg_idx++]);
 int Instructions = atoi(argv[arg_idx++]);
 std::string model_path(argv[3]);
+at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
+float *inp= input.data_ptr<float>();
 //cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 
 float *inputPtr, *output;
@@ -336,7 +338,7 @@ trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 int Batch_size = Instructions / Total_Trace;
-//cout << " Iterations: " << Batch_size << endl;
+cout << " Iterations: " << Batch_size << endl;
 //cout<<"Parameters read..\n";
 omp_set_num_threads(96);
 double measured_time = 0.0;
@@ -393,7 +395,7 @@ double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
-  cout << "\n Iteration: " << iteration << endl;
+  if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
@@ -401,15 +403,15 @@ while (iteration < Batch_size){
     if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],i))
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
-  } 
+    } 
   double check1 = wtime();
   red+= (check1-st);
-  H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
-  double check2 = wtime();
+    H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
+    double check2 = wtime();
   tr+= (check2-check1);
   preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
-  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
+    H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
   fwrite(inp, sizeof(float), ML_SIZE, pFile);
   //printf("Input:\n");
   //display(inp, 51,4);
