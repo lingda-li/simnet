@@ -23,44 +23,6 @@ Tick Num = 0;
 
 
 
- __device__ void
-  dis(float *data, int size, int rows)
-  {
-    for (int i = 0; i < rows; i++)
-    {
-      for (int j = 0; j < size; j++)
-      {
-        printf("%.3f  ", data[i * size + j]);
-      }
-      printf("\n");
-    }
-  }
-
-__device__ Tick
-max(float x, Tick y)
-{
-  if (x > y)
-  {
-    return x;
-  }
-  else
-  {
-    return y;
-  }
-}
-
-__global__ void
-result(Tick *curTick, int Total_Trace, int instructions)
-{
-  Tick sum = 0;
-  for (int i = 0; i < Total_Trace; i++)
-  {
-    sum += curTick[i];
-    //printf("Trace: %d, curTick: %lu\n", i, curTick[i]);
-  }
-  printf("~~~~~~~~~%d instructions finish by %ld ~~~~~~~~~\n", instructions, sum);
-}
-
 __global__ void
 preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, Tick *curTick_d, Tick *lastFetchTick_d, int *status, int Total_Trace)
 {
@@ -87,7 +49,7 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
     Tick curTick = curTick_d[index];
     Tick lastFetchTick = lastFetchTick_d[index];
     input_Ptr= inputPtr + ML_SIZE * index;  
-    int old_head= rob->head;
+    //int old_head= rob->head;
 
 if (warpTID == 0)
     {
@@ -130,85 +92,6 @@ if (warpTID == 0)
   }
 }
 
-__global__ void
-update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tick *lastFetchTick, int *status, int Total_Trace)
-{
-  //float output[]={ 2.1987 ,0.4428,  0.0245 , 0.2029, 0.0094 , 0.1621};
-  //printf("Here\n");
-  int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
-  int index = TID;
-  ROB *rob;
-  while (index < Total_Trace)
-  {
-    int offset = index * 2;
-    Tick nextFetchTick = 0;
-    rob= &rob_d[index];
-    int tail= rob->dec(rob->tail);
-    int rob_offset = ROBSIZE * INST_SIZE * index;
-    int context_offset = rob->dec(rob->tail) * INST_SIZE;
-    //float *rob_pointer = insts + rob_offset + context_offset;
-    //printf("%ld, %.3f, %.3f\n ",curTick[index],output[offset+0],output[offset+1]);
-    float fetch_lat = output[offset + 0] * factor[1] + mean[1];
-    float finish_lat = output[offset + 1] * factor[3] + mean[3];
-    int int_fetch_lat = round(fetch_lat);
-    int int_finish_lat = round(finish_lat);
-    #ifdef DEBUG
-    printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
-    #endif
-    if (int_fetch_lat < 0)
-    {int_fetch_lat = 0;}
-    if (int_finish_lat < MIN_COMP_LAT)
-      int_finish_lat = MIN_COMP_LAT;
-    rob->insts[tail].train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
-    rob->insts[tail].train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
-    rob->insts[tail].train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
-    if (rob->insts[tail].train_data[2] >= 9 / factor[2])
-    {
-      rob->insts[tail].train_data[2] = 9 / factor[2];
-    }
-    rob->insts[tail].train_data[3] = (int_finish_lat - mean[3]) / factor[3];
-    //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
-    rob->insts[tail].tickNum = int_finish_lat;
-    rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;
-    lastFetchTick[index] = curTick[index];
-    if (int_fetch_lat)
-    {
-            status[index]=1;
-      nextFetchTick = curTick[index] + int_fetch_lat;
-      #ifdef DEBUG  
-      printf("Break with int fetch\n");
-#endif
-    }
-    else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
-    if ((rob->is_full() || rob->saturated) && int_fetch_lat)
-    {
-      curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
-      #ifdef DEBUG
-      printf("getting max\n");
-#endif
-    }
-    else if (int_fetch_lat)
-    {
-      curTick[index] = nextFetchTick;
-      #ifdef DEBUG
-      printf("fastforward ot fetch\n");
-#endif
-    }
-    else if (rob->saturated || rob->is_full())
-    {
-      curTick[index] = rob[tail].getHead()->completeTick;
-      #ifdef DEBUG
-      printf("fastforward to retire\n");
-#endif
-    }
-    #ifdef DEBUG
-    printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
-#endif
-    //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
-    index += (gridDim.x * blockDim.x);
-  }
-}
-
 
 void display(float *data, int size, int rows)
 {
@@ -244,29 +127,6 @@ float *read_numbers(char *fname, int sz)
   return ret;
 }
 
-int read_trace_mem(char trace_file[], char aux_trace_file[], float *trace, Tick *aux_trace, int instructions)
-{
-  FILE *trace_f = fopen(trace_file, "rb");
-  if (!trace_f)
-  {
-    printf("Unable to read trace binary.");
-    return 1;
-  }
-  int r = fread(trace, sizeof(float), TRACE_DIM * instructions, trace_f);
-  printf("read :%d values for trace.\n", r);
-  //display(trace,TRACE_DIM,2);
-
-  FILE *aux_trace_f = fopen(aux_trace_file, "rb");
-  if (!aux_trace_f)
-  {
-    printf("Unable to aux_trace binary.");
-    return 1;
-  }
-  int k = fread(aux_trace, sizeof(Tick), AUX_TRACE_DIM * instructions, aux_trace_f);
-  printf("read :%d values for aux_trace.\n", k);
-  //display(aux_trace,AUX_TRACE_DIM,2);
-  return true;
-}
 
 int main(int argc, char *argv[])
 {
@@ -308,7 +168,7 @@ std::vector<nvinfer1::Dims> output_dims;
 for (size_t i = 0; i < engine->getNbBindings(); ++i)
 {
   auto binding_size = getSizeByDim(engine->getBindingDimensions(i)) * sizeof(float);
-  //std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
+  std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
   //cudaMalloc(&buffers[i], binding_size);
   if (engine->bindingIsInput(i))
   {
@@ -324,10 +184,10 @@ if (input_dims.empty() || output_dims.empty())
   std::cerr << "Expect at least one input and one output for network\n";
   return -1;
 }
-//cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
+//std::cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 float *inputPtr, *output;
 H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * ML_SIZE * Total_Trace));
-H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 2));
+H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 22));
 buffers[0] = inputPtr;
 buffers[1] = output;
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
@@ -363,7 +223,7 @@ for (int i = 0; i < Total_Trace; i++)
 // printf("Allocated. \n");
 //return 0;
 float *factor_d, *default_val_d, *mean_d;
-float *train_data;
+//float *train_data;
 Tick *curTick, *lastFetchTick;
 int *status;
 H_ERR(cudaMalloc((void **)&curTick, sizeof(Tick) * Total_Trace));
@@ -387,7 +247,7 @@ H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float) * (TD_SIZE)));
 H_ERR(cudaMemcpy(factor_d, &factor, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
 H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
 H_ERR(cudaMemcpy(mean_d, &mean, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
-struct timeval start, end, total_start, total_end;
+struct timeval total_start, total_end;
 int iteration = 0;
 gettimeofday(&total_start, NULL);
 double start_ = wtime();
@@ -397,7 +257,7 @@ FILE *pFile;
 pFile= fopen ("trtcustom.bin", "wb");
 #endif
 while (iteration < Batch_size){
-  //if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
+  if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
@@ -408,11 +268,13 @@ while (iteration < Batch_size){
   } 
   double check1 = wtime();
   red+= (check1-st);
+  cout<<"trace read\n";
   H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
   double check2 = wtime();
   tr+= (check2-check1);
   preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
+  cout<<"preprocess done\n";
 #ifdef DEBUG
   float *inp;
   inp= (float*) malloc(ML_SIZE*Total_Trace*sizeof(float));
@@ -427,7 +289,7 @@ while (iteration < Batch_size){
   cudaStreamSynchronize(0);
   double check4= wtime();
   inf+= (check4-check3);
-  //cout<<"Inference done\n";
+  cout<<"Inference done\n";
 
   update<<<4096,32>>>(rob_d, output, factor_d, mean_d, curTick, lastFetchTick, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());

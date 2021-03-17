@@ -1,6 +1,7 @@
 #ifndef SIM_H
 #define SIM_H
-
+#include <stdio.h>
+#include <iostream>
 #define TD_SIZE 51
 #define INST_SIZE 51
 #define CONTEXTSIZE 111
@@ -32,6 +33,7 @@
 #define AUX_TRACE_DIM 10
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 #define MIN_COMP_LAT 6
+#define COMBINED
 typedef long unsigned Tick;
 typedef long unsigned Addr;
 float factor[TD_SIZE];
@@ -101,9 +103,9 @@ struct Inst
       iwalkAddr[i] = aux_trace[4 + i];
     for (int i = 0; i < 3; i++)
       dwalkAddr[i] = aux_trace[7 + i]; 
-    for (int i = 0; i < TD_SIZE; i++)
-    {
-    } //cout << train_data[i] << " ";
+    //for (int i = 0; i < TD_SIZE; i++)
+   // {
+   // } //cout << train_data[i] << " ";
       //cout << "\n";
     return true;
   }
@@ -201,7 +203,7 @@ struct ROB
   
   __device__ void update_fetch_cycle(Tick tick, Tick curTick, float *factor)
   {
-    int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
+    //int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
     //int warpID= TID / WARPSIZE;
     int warpTID = threadIdx.x % WARPSIZE;
     assert(!is_empty());
@@ -244,9 +246,9 @@ struct ROB
 
   __device__ int make_input_data(float *inputs, Tick tick, float *factor, float *default_val)
   { 
-    int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
-    int warpID = TID / WARPSIZE;
-    int warpTID = TID % WARPSIZE;
+    //int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
+    //int warpID = TID / WARPSIZE;
+    int warpTID = threadIdx.x % WARPSIZE;
     int curr = dec(tail);
     int start_context = dec(dec(tail));
     int end_context = dec(head);
@@ -364,5 +366,193 @@ struct ROB
     return 0;
   }
 };
+
+
+  __device__ void
+  dis(float *data, int size, int rows)
+  {
+    for (int i = 0; i < rows; i++)
+    {
+      for (int j = 0; j < size; j++)
+      {
+        printf("%.3f  ", data[i * size + j]);
+      }
+      printf("\n");
+    }
+  }
+  
+
+__global__ void
+result(Tick *curTick, int Total_Trace, int instructions)
+{
+  Tick sum = 0;
+  for (int i = 0; i < Total_Trace; i++)
+  {
+    sum += curTick[i];
+    //printf("T: %d, Tick: %lu\n", i, curTick[i]);
+  }
+  printf("~~~~~~~~~Instructions: %d, Batch: %d, Prediction: %lu ~~~~~~~~~\n", instructions,Total_Trace, sum);
+}
+
+
+__device__ Tick
+max(float x, Tick y)
+{
+  if (x > y)
+  {
+    return x;
+  }
+  else
+  {
+    return y;
+  }
+}
+
+
+__device__ void inst_copy(Inst *dest, Inst *source)
+{
+        dest->trueFetchClass= source->trueFetchClass;
+        dest->trueFetchTick= source->trueFetchTick;
+        dest->trueCompleteClass= source->trueCompleteClass;
+        dest->trueCompleteTick= source->trueCompleteTick;
+        dest->pc= source->pc;
+        dest->isAddr= source->isAddr;
+        dest->addr= source->addr;
+        dest->addrEnd= source->addrEnd;
+        for(int i=0;i<3; i++){
+                dest->iwalkAddr[i]= source->iwalkAddr[i];
+                dest->dwalkAddr[i]= source->dwalkAddr[i];
+        }
+        for(int i=0;i<TD_SIZE;i++){
+                dest->train_data[i]= source->train_data[i];
+        }
+}
+
+__global__ void
+update(ROB *rob_d, float *output, float *factor, float *mean, Tick *curTick, Tick *lastFetchTick, int *status, int Total_Trace)
+{
+  int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
+  int index = TID;
+  ROB *rob;
+  while (index < Total_Trace)
+  {
+#if defined(COMBINED)
+    int offset= index * 22;
+#else
+    int offset = index * 2;
+#endif   
+    Tick nextFetchTick = 0;
+    rob= &rob_d[index];
+    int tail= rob->dec(rob->tail);
+    //int rob_offset = ROBSIZE * INST_SIZE * index;
+    int context_offset = rob->dec(rob->tail) * INST_SIZE;
+    //float *rob_pointer = insts + rob_offset + context_offset;
+    //printf("%ld, %.3f, %.3f\n ",curTick[index],output[offset+0],output[offset+1]);
+    //dis(output,22,1 );
+#if defined(COMBINED)
+    int f_class, c_class;
+    for(int i=0; i<2;i++)
+    {
+	     float max = output[offset + 10*i+2];
+	     int idx=0;
+	     //printf("i: %d, max: %d\n", i ,max);
+	     for (int j = 1; j < 10; j++) {
+		     //printf("i: %d, max: %f, value: %f\n", i ,max,output[offset + 10*i+2+j]);
+		     if (max < output[offset + 10*i+2+j]) {
+            max = output[offset + 10*i+2+j];
+            idx = j;
+          }
+	     }
+	     if (i == 0)
+	     {f_class = idx;}
+        else
+	{c_class = idx;}
+    }
+    //printf("fclass: %d, cclass: %d\n", f_class, c_class);
+#endif
+    float fetch_lat = output[offset + 0] * factor[1] + mean[1];
+    float finish_lat = output[offset + 1] * factor[3] + mean[3];
+    int int_fetch_lat = round(fetch_lat);
+    int int_finish_lat = round(finish_lat);
+    if (int_fetch_lat < 0)
+    {int_fetch_lat = 0;}
+    if (int_finish_lat < MIN_COMP_LAT)
+      int_finish_lat = MIN_COMP_LAT;
+   #ifdef DEBUG
+    printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
+    #endif 
+#if defined(COMBINED)
+     if (f_class <= 8)
+        int_fetch_lat = f_class;
+      if (c_class <= 8)
+        int_finish_lat = c_class + MIN_COMP_LAT;
+#endif
+    rob->insts[tail].train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
+    rob->insts[tail].train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
+    rob->insts[tail].train_data[2] = (int_finish_lat - MIN_COMP_LAT - mean[2]) / factor[2];
+    if (rob->insts[tail].train_data[2] >= 9 / factor[2])
+    {
+      rob->insts[tail].train_data[2] = 9 / factor[2];
+    }
+    rob->insts[tail].train_data[3] = (int_finish_lat - mean[3]) / factor[3];
+#ifdef DEBUG
+    printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
+#endif
+    rob->insts[tail].tickNum = int_finish_lat;
+    rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;
+    lastFetchTick[index] = curTick[index];
+    if (int_fetch_lat)
+    {
+            status[index]=1;
+      nextFetchTick = curTick[index] + int_fetch_lat;
+        //printf("Break with int fetch\n");
+    }
+    else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
+    if ((rob->is_full() || rob->saturated) && int_fetch_lat)
+    {
+      curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
+      //printf("getting max\n");
+    }
+    else if (int_fetch_lat)
+    {
+      curTick[index] = nextFetchTick;
+      //printf("fastforward to fetch\n");
+    }
+    else if (rob->saturated || rob->is_full())
+    {
+      curTick[index] = rob[tail].getHead()->completeTick;
+      //printf("fastforward to retire\n");
+    }
+    //printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
+    //printf("curTick: %ld, completeTick: %.2f, nextfetchTick: %ld, lastFetchTick: %ld \n",curTick[index],rob_pointer[rob_offset+COMPLETETICK],nextFetchTick,lastFetchTick[index]);
+    index += (gridDim.x * blockDim.x);
+  }
+}
+
+int read_trace_mem(char trace_file[], char aux_trace_file[], float *trace, Tick *aux_trace, unsigned long int instructions)
+{
+  FILE *trace_f = fopen(trace_file, "rb");
+  if (!trace_f)
+  {
+    printf("Unable to read trace binary.");
+    return 1;
+  }
+
+  unsigned long int tot= TRACE_DIM * instructions;
+  Tick r = fread(trace, sizeof(float), TRACE_DIM * instructions, trace_f);
+  printf("tot: %lu, Toread: %lu, read :%lu values for trace.\n",tot,TRACE_DIM * instructions, r);
+  //display(trace,TRACE_DIM,2);
+
+  FILE *aux_trace_f = fopen(aux_trace_file, "rb");
+  if (!aux_trace_f)
+  {
+    printf("Unable to aux_trace binary.");
+    return 1;
+  }
+  int k = fread(aux_trace, sizeof(Tick), AUX_TRACE_DIM * instructions, aux_trace_f);
+  printf("read :%d values for aux_trace.\n", k);
+  //display(aux_trace,AUX_TRACE_DIM,2);
+  return true;
+}
 
 #endif

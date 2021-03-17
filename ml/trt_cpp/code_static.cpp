@@ -80,7 +80,7 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
     
     if (builder->platformHasFastFp16())
     {
-        config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        //config->setFlag(nvinfer1::BuilderFlag::kFP16);
     }
     
     // we have only one image in batch
@@ -114,7 +114,7 @@ std::string readBuffer(std::string const& path)
 void serializer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine)
 {
     TRTUniquePtr<nvinfer1::IHostMemory> serializedModel{engine->serialize()};
-    std::ofstream p("tensorrt_models/simnet1.engine",std::ios::binary);
+    std::ofstream p("tensorrt_models/simnet_cnn7_8k.engine",std::ios::binary);
     p.write((const char*)serializedModel->data(),serializedModel->size());
     p.close();
     cout<<"Serialized\n";
@@ -170,11 +170,12 @@ int main(int argc, char* argv[])
     std::string model_path(argv[1]);
     TRTUniquePtr< nvinfer1::ICudaEngine > engine{nullptr};
     TRTUniquePtr< nvinfer1::IExecutionContext > context{nullptr};
-    deseralizer(engine,context,model_path);
+    //deseralizer(engine,context,model_path);
     //serializer(engine);
     std::vector<nvinfer1::Dims> input_dims;
     std::vector<nvinfer1::Dims> output_dims;
-    //parseOnnxModel(model_path, engine, context, batch_size); 
+    parseOnnxModel(model_path, engine, context, batch_size); 
+    serializer(engine);
     printf("Max batch size for model: %d\n",engine->getMaxBatchSize());
     std::vector<void*> buffers(engine->getNbBindings());
     //printf("Context size: %d \t (Memory for model operations) \n", context->getBindingDimensions(0));
@@ -200,9 +201,12 @@ int main(int argc, char* argv[])
    	 }
     float *inputBuffer, *outputBuffer;
     std::cout<<"Index 0: "<<engine->getBindingName(0)<<" Index 1: "<<engine->getBindingName(1)<<"\n";
-    int total= batch_size * 5661;
+    int input_dim= engine->getBindingDimensions(0).d[1];
+    int output_dim= engine->getBindingDimensions(1).d[1];
+     std::cout<<"Input: "<<input_dim<<" output: "<<output_dim<<"\n";
+    int total= batch_size * input_dim;
     float *ptr = (float*) malloc(total * sizeof(float));
-    float *result=  (float*) malloc(2 *batch_size* sizeof(float));
+    float *result=  (float*) malloc(output_dim *batch_size* sizeof(float));
     for (int j=0;j<total;j++)
     {
 	    ptr[j]=1; 
@@ -216,9 +220,9 @@ int main(int argc, char* argv[])
     cudaStreamSynchronize(0);
     double en=wtime();
     std::cout<< "Data: " << check1-st << " Inferece: " << en-check1 << endl;
-    cudaMemcpy(result,buffers[1], 2 * batch_size, cudaMemcpyDeviceToHost);    
+    cudaMemcpy(result,buffers[1], output_dim * batch_size, cudaMemcpyDeviceToHost);    
     printf("\n Result: \n");
-    for(int j=0; j<(4*2);j++)
+    for(int j=0; j<(4*output_dim);j++)
     {
 	if((j>0) && (j%2==0)){ printf("\n");}
 	printf("%.3f\t",result[j]);
