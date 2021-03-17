@@ -43,7 +43,7 @@ Tick Num = 0;
 float factor[TD_SIZE];
 float mean[TD_SIZE];
 
-float default_val[TD_SIZE];
+float default_val[ML_SIZE];
 
 Addr getLine(Addr in) { return in & ~0x3f; }
 
@@ -175,9 +175,11 @@ struct ROB {
       std::copy(insts[i].train_data, insts[i].train_data + TD_SIZE, context + num * TD_SIZE);
       num++;
     }
-    for (int i = num; i < CONTEXTSIZE; i++) {
-      std::copy(default_val, default_val + TD_SIZE, context + i * TD_SIZE);
-    }
+    //for (int i = num; i < CONTEXTSIZE; i++) {
+    //  std::copy(default_val, default_val + TD_SIZE, context + i * TD_SIZE);
+    //}
+    if (num < CONTEXTSIZE)
+      std::copy(default_val, default_val + (CONTEXTSIZE - num) * TD_SIZE, context + num * TD_SIZE);
   }
   void update_fetch_cycle(Tick tick, Tick curTick) {
     assert(!is_empty());
@@ -227,6 +229,7 @@ int main(int argc, char *argv[]) {
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
     lat_module = torch::jit::load(argv[3]);
+    lat_module.eval();
 #ifdef GPU
     lat_module.to(torch::kCUDA);
 #endif
@@ -241,6 +244,7 @@ int main(int argc, char *argv[]) {
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
     cla_module = torch::jit::load(argv[4]);
+    cla_module.eval();
 #ifdef GPU
     cla_module.to(torch::kCUDA);
 #endif
@@ -261,11 +265,18 @@ int main(int argc, char *argv[]) {
 #endif
     factor[i] = sqrtf(varPtr[i]);
     default_val[i] = -mean[i] / factor[i];
-    cout << default_val[i] << " ";
+    //cout << default_val[i] << " ";
   }
-  cout << "\n";
+  //cout << "\n";
+  for (int i = TD_SIZE; i < ML_SIZE; i++)
+    default_val[i] = default_val[i % TD_SIZE];
   at::Tensor input = torch::ones({1, ML_SIZE});
   float *inputPtr = input.data_ptr<float>();
+  std::vector<torch::jit::IValue> inputs;
+  at::Tensor output;
+#ifdef CLASSIFY
+  at::Tensor cla_output;
+#endif
 
   unsigned long long inst_num = 0;
   unsigned long long fetched_inst_num = 0;
@@ -320,7 +331,6 @@ int main(int argc, char *argv[]) {
 #else
       // Predict fetch and completion time.
       gettimeofday(&start, NULL);
-      std::vector<torch::jit::IValue> inputs;
       //input.data_ptr<c10::ScalarType::Float>();
       if (curTick != lastFetchTick) {
         rob->update_fetch_cycle(curTick - lastFetchTick, curTick);
@@ -341,15 +351,16 @@ int main(int argc, char *argv[]) {
       cout << endl;
       //cout << input << "\n";
 #endif
+      inputs.clear();
 #ifdef GPU
       inputs.push_back(input.cuda());
 #else
       inputs.push_back(input);
 #endif
       gettimeofday(&end, NULL);
-      at::Tensor output = lat_module.forward(inputs).toTensor();
+      output = lat_module.forward(inputs).toTensor();
 #ifdef CLASSIFY
-      at::Tensor cla_output = cla_module.forward(inputs).toTensor();
+      cla_output = cla_module.forward(inputs).toTensor();
 #endif
       measured_time += (end.tv_sec - start.tv_sec) * 1000000.0 + end.tv_usec - start.tv_usec;
       //cout << 1000000 * (end.tv_sec - start.tv_sec) + end.tv_usec - start.tv_usec << "\n";
