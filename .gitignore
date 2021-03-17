@@ -4,6 +4,10 @@
 *.tr
 *.npy
 *.npz
+*.bin
+*.engine
+*.log
+*.swp
 *~
 *#
 __pycache__

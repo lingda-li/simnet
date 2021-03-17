@@ -220,16 +220,16 @@ float *read_numbers(char *fname, int sz) {
 int main(int argc, char *argv[])
 {
 #ifdef CLASSIFY
-  if (argc != 9) {
+  if (argc != 10) {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> "
-            "<#nGPU> <OpenMP threads> <variances> <class module>"
+            "<Total_instr> <#nGPU> <OpenMP threads> <variances> <class module>"
          << endl;
     return 0;
   }
 #else
-  if (argc != 8) {
+  if (argc != 9) {
     cerr << "Usage: ./simulator <trace> <aux trace> <lat module> <#Batchsize> "
-            "<#nGPU> <OpenMP threads> <variances>"
+            "<Total_instr> <#nGPU> <OpenMP threads> <variances>"
          << endl;
     return 0;
   }
@@ -249,14 +249,14 @@ int main(int argc, char *argv[])
   int Total_Trace = atoi(argv[4]);
   std::string line;
   int lines = 0;
-  while (std::getline(trace_test, line))
-    ++lines;
-  int Total_instr = lines;
+  //while (std::getline(trace_test, line))
+    //++lines;
+  int Total_instr = atoi(argv[5]);
   int Batch_size = Total_instr / Total_Trace;
   cout << "Simulate " << Total_instr << " instructions (" << Total_Trace
        << " batches * " << Batch_size << ")\n";
 
-  int nGPU = atoi(argv[5]);
+  int nGPU = atoi(argv[6]);
   if ((int)torch::cuda::device_count() < nGPU) {
     cerr << "GPUs not enough" << endl;
     return 0;
@@ -291,7 +291,7 @@ int main(int argc, char *argv[])
   }
   cout << "Parameters loaded..." << endl;
 
-  float *varPtr = read_numbers(argv[7], TD_SIZE);
+  float *varPtr = read_numbers(argv[8], TD_SIZE);
   cout << "vars: ";
   for (int i = 0; i < TD_SIZE; i++) {
 #ifdef NO_MEAN
@@ -372,7 +372,7 @@ int main(int argc, char *argv[])
   double loop1_time = 0, loop2_time = 0, loop3_time = 0, loop4_time = 0,
          loop5_time = 0;
   gettimeofday(&total_start, NULL);
-  omp_set_num_threads(atoi(argv[6]));
+  omp_set_num_threads(atoi(argv[7]));
 #ifdef DEBUG
   cout << "Simulation starting....." << endl;
 #endif
