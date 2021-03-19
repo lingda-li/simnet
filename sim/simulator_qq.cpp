@@ -147,7 +147,7 @@ struct Queue {
     if (sq) {
       while (!is_empty() && insts[head].completeTick <= tick &&
              retired < RETIRE_BANDWIDTH) {
-        if (insts[head].inSQ()) {
+        if (insts[head].isStore()) {
           if (sq->is_full())
             break;
           Inst *newInst = sq->add();
