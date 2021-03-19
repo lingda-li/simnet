@@ -58,7 +58,9 @@ int main(int argc, char *argv[]) {
 
   cerr << "\nFinish at " << curTick << " with " << num << " instructions.\n";
   cerr << "Max rob and sq sizes are " << q->max_rob_size << " "
-       << q->max_sq_size;
+       << q->max_sq_size << "\n";
+  cerr << "Min complete and store latency is " << minCompleteLat << " "
+       << minStoreLat;
   trace.close();
   sqtrace.close();
   output.close();

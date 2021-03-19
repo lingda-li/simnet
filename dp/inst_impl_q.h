@@ -8,9 +8,11 @@ using namespace std;
 //#define COMBINE_OP
 
 #define TICK_STEP 500
-#define MINCOMPLETELAT 6
-#define MINSTORELAT 10
-#define MINOUTLAT MINCOMPLETELAT
+//#define MINCOMPLETELAT 6
+//#define MINSTORELAT 10
+//#define MINOUTLAT MINCOMPLETELAT
+Tick minCompleteLat = 100;
+Tick minStoreLat = 100;
 
 Addr getLine(Addr in) { return in & ~0x3f; }
 int getReg(int C, int I) { return C * MAXREGIDX + I + 1; }
@@ -58,13 +60,17 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   inTick /= TICK_STEP;
   completeTick /= TICK_STEP;
   outTick /= TICK_STEP;
-  assert(completeTick >= MINCOMPLETELAT);
+  //assert(completeTick >= MINCOMPLETELAT);
+  if (completeTick < minCompleteLat)
+    minCompleteLat = completeTick;
   if (sqIdx != -1) {
     assert(sqOutTick >= storeTick);
     assert(!inSQ() || storeTick >= outTick);
     storeTick /= TICK_STEP;
     sqOutTick /= TICK_STEP;
-    assert(storeTick >= MINSTORELAT);
+    //assert(storeTick >= MINSTORELAT);
+    if (storeTick < minStoreLat)
+      minStoreLat = storeTick;
   } else {
     storeTick = 0;
     sqOutTick = 0;
@@ -289,15 +295,15 @@ void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
     outLat = sqOutTick;
   else
     outLat = outTick;
-  int fetchC, outC;
-  if (fetchLat <= 8)
-    fetchC = fetchLat;
-  else
-    fetchC = 9;
-  if (outLat <= MINOUTLAT + 8)
-    outC = outLat - MINOUTLAT;
-  else
-    outC = 9;
+  //int fetchC, outC;
+  //if (fetchLat <= 8)
+  //  fetchC = fetchLat;
+  //else
+  //  fetchC = 9;
+  //if (outLat <= MINOUTLAT + 8)
+  //  outC = outLat - MINOUTLAT;
+  //else
+  //  outC = 9;
   //out << fetchC << " " << fetchLat << " ";
   //out << outC << " " << outLat << " ";
   out << fetchLat << " " << completeTick << " " << storeTick << " ";

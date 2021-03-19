@@ -6,7 +6,8 @@
 
 using namespace std;
 
-#define QSIZE 400
+//#define QSIZE 400
+#define QSIZE 1000
 
 struct QUEUE {
   Inst insts[QSIZE];
