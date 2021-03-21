@@ -26,7 +26,7 @@ Tick Num = 0;
 
 
 __global__ void
-preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, Tick *curTick_d, Tick *lastFetchTick_d, int *status, int Total_Trace)
+preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, int *status, int Total_Trace)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
@@ -48,8 +48,8 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
 #ifdef DEBUG
     if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
 #endif
-    Tick curTick = curTick_d[index];
-    Tick lastFetchTick = lastFetchTick_d[index];
+    Tick curTick = rob->curTick;
+    Tick lastFetchTick = rob->lastFetchTick;
     input_Ptr= inputPtr + ML_SIZE * index;  
     //int old_head= rob->head;
 
@@ -77,10 +77,10 @@ if (warpTID == 0)
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
+      rob->update_fetch_cycle(curTick - lastFetchTick, factor);
     } 
     __syncwarp();
-    rob->make_input_data(input_Ptr, curTick, factor, default_val);
+    rob->make_input_data(input_Ptr,curTick, factor, default_val);
 #ifdef DEBUG
     if (warpTID == 0)
     {
@@ -287,7 +287,7 @@ while (iteration < Batch_size){
     H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
     double check2 = wtime();
   tr+= (check2-check1);
-  preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, curTick, lastFetchTick, status, Total_Trace);
+  preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
@@ -308,7 +308,7 @@ while (iteration < Batch_size){
   //cout<<"Inference done\n";
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*22, cudaMemcpyHostToDevice));
 
-  update<<<4096,64>>>(rob_d, output, factor_d, mean_d, curTick, lastFetchTick, status, Total_Trace);
+  update<<<4096,64>>>(rob_d, output, factor_d, mean_d, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
   double check5=wtime();
@@ -320,7 +320,7 @@ printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
-result<<<1, 1>>>(curTick, Total_Trace, Instructions);
+result<<<1, 1>>>(rob_d, Total_Trace, Instructions);
 H_ERR(cudaDeviceSynchronize());
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 //cout << "Total time: " << (end_ - start_) << endl;

@@ -26,7 +26,7 @@ Tick Num = 0;
 
 
 __global__ void
-preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, Tick *curTick_d, Tick *lastFetchTick_d, int *status, int Total_Trace)
+preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_val, float *inputPtr, int *status, int Total_Trace)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
@@ -48,8 +48,8 @@ preprocess(ROB *rob_d, Inst *insts, float *factor, float *mean, float *default_v
 #ifdef DEBUG
     if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
 #endif
-    Tick curTick = curTick_d[index];
-    Tick lastFetchTick = lastFetchTick_d[index];
+    Tick curTick = rob->curTick;
+    Tick lastFetchTick = rob->lastFetchTick;
     input_Ptr= inputPtr + ML_SIZE * index;  
     //int old_head= rob->head;
 
@@ -77,7 +77,7 @@ if (warpTID == 0)
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      rob->update_fetch_cycle(curTick - lastFetchTick, curTick, factor);
+      rob->update_fetch_cycle(curTick - lastFetchTick, factor);
     } 
     __syncwarp();
     rob->make_input_data(input_Ptr, curTick, factor, default_val);
@@ -128,33 +128,6 @@ float *read_numbers(char *fname, int sz)
   return ret;
 }
 
-/*
-int read_trace_mem(char trace_file[], char aux_trace_file[], float *trace, Tick *aux_trace, int instructions)
-{
-  FILE *trace_f = fopen(trace_file, "rb");
-  if (!trace_f)
-  {
-    printf("Unable to read trace binary.");
-    return 1;
-  }
-  Tick tot= TRACE_DIM * instructions;
-  Tick r = fread(trace, sizeof(float), TRACE_DIM * instructions, trace_f);
-  printf("tot: %lu, Toread: %lu, read :%lu values for trace.\n",tot,TRACE_DIM * instructions, r);
-  //display(trace,TRACE_DIM,2);
-
-  FILE *aux_trace_f = fopen(aux_trace_file, "rb");
-  if (!aux_trace_f)
-  {
-    printf("Unable to aux_trace binary.");
-    return 1;
-  }
-  int k = fread(aux_trace, sizeof(Tick), AUX_TRACE_DIM * instructions, aux_trace_f);
-  printf("read :%d values for aux_trace.\n", k);
-  //display(aux_trace,AUX_TRACE_DIM,2);
-  return true;
-}
-*/
-
 
 int main(int argc, char *argv[])
 {
@@ -168,12 +141,12 @@ int main(int argc, char *argv[])
 #else
   if (argc != 8)
   {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <#Insts> <nGPUs> <ROB_per_GPU>" << endl;
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <#Insts> <ROB_per_GPU> <nGPUs>" << endl;
 #endif
   return 0;
 }
 int arg_idx = 4;
-float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
+float *varPtr = read_numbers(argv[4], TD_SIZE);
 for (int i = 0; i < TD_SIZE; i++)
 {
 #ifdef NO_MEAN
@@ -183,11 +156,16 @@ for (int i = 0; i < TD_SIZE; i++)
   default_val[i] = -mean[i] / factor[i];
   //cout<<default_val[i]<<" ";
 }
-int nGPUs= 1;
-if ((int)torch::cuda::device_count() < nGPUs) {
-  cerr << "GPUs not enough" << endl;
-  return 0;
-}
+  const int nGPUs= atoi(argv[7]);
+  const int ROB_per_GPU= atoi(argv[6]);
+  int count[2];
+  H_ERR(cudaGetDeviceCount(count));
+  if (count[0] < nGPUs) {
+   cerr << "GPUs not enough" << endl;
+   return 0;
+  }
+printf("GPU loaded\n");
+at::Tensor input[nGPUs];
 torch::jit::script::Module lat_module[nGPUs];
 #pragma omp parallel for
     for (int i = 0; i < nGPUs; i++) {
@@ -208,12 +186,12 @@ torch::jit::script::Module lat_module[nGPUs];
 
 
 //cout<<endl;
-int Total_Trace = atoi(argv[arg_idx++]);
-int Instructions = atoi(argv[arg_idx++]);
+//int Total_Trace = atoi(argv[arg_idx++]);
+const int Total_Trace= nGPUs * ROB_per_GPU;
+const int Instructions = atoi(argv[5]);
 cout<< "Total_Trace: "<< Total_Trace << ", Instructions: "<< Instructions << endl;
 std::string model_path(argv[3]);
-at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
-
+//at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
 //cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *trace;
@@ -221,12 +199,10 @@ Tick *aux_trace;
 trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
-int ROB_per_GPU= 32;
-int Total_Trace= nGPUs * ROB_per_GPU;
 int Batch_size = Instructions / Total_Trace;
 cout << " Iterations: " << Batch_size << endl;
 //cout<<"Parameters read..\n";
-omp_set_num_threads(1);
+omp_set_num_threads(96);
 double measured_time = 0.0;
 Tick Case0 = 0;
 Tick Case1 = 0;
@@ -239,7 +215,7 @@ int *fetched = new int[Total_Trace];
 int *ROB_flag = new int[Total_Trace];
 float *trace_all[Total_Trace];
 Tick *aux_trace_all[Total_Trace];
-//printf("variable init\n");
+printf("variable init\n");
 #pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
@@ -248,23 +224,19 @@ for (int i = 0; i < Total_Trace; i++)
   aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
 }
 
-
-
-int *status;
-H_ERR(cudaMalloc((void **)&status, sizeof(int) * Total_Trace));
-cudaMemset(curTick, 0, Total_Trace);
-cudaMemset(lastFetchTick, 0, Total_Trace);
-
-struct ROB *rob= new ROB[nGPUs][ROB_per_GPU];
-struct Inst *inst= new Inst[nGPUs][ROB_per_GPU];
-struct ROB *rob_d= new ROB[nGPUs];
+int *status[nGPUs];
+//struct ROB *rob[nGPUs];
+struct Inst *inst[nGPUs];
+struct ROB *rob_d[nGPUs];
 struct Inst *inst_d[nGPUs];
 float *factor_d[nGPUs], *default_val_d[nGPUs], *mean_d[nGPUs];
 float *inputPtr[nGPUs], *output[nGPUs];
 
 #pragma omp parallel for
     for (int i = 0; i < nGPUs; i++) {
-      cudaSetDevice(i);
+      inst[i]= new Inst[ROB_per_GPU];
+      H_ERR(cudaSetDevice(i));
+      H_ERR(cudaMalloc((void **)&status[i], sizeof(int) * ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&rob_d[i], sizeof(ROB)*ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&inst_d[i], sizeof(Inst)*ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&inputPtr[i], sizeof(float) * ML_SIZE * ROB_per_GPU));
@@ -286,28 +258,34 @@ double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
-  //if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
+  if((iteration % 1)==0){cout << "Iteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-    int GPU= i/ROB_per_GPU;
+    int GPU_ID= i/ROB_per_GPU;
     int index= i % ROB_per_GPU; 
-    if (!inst[GPU][index].read_sim_mem(trace_all[i], aux_trace_all[i],i))
+    if (!inst[GPU_ID][index].read_sim_mem(trace_all[i], aux_trace_all[i],i))
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("Trace: %d, read\n",i);
     } 
   double check1 = wtime();
   red+= (check1-st);
+  //cout<< "Instructions read\n";
   #pragma omp parallel for
     for (int i = 0; i < nGPUs; i++) {
+    //cout<< "GPU: "<<i<< " "<<wtime()<<endl;
+	    H_ERR(cudaSetDevice(i));
+    //cout<<"set device: \n";
     H_ERR(cudaMemcpy(inst_d[i], inst[i], sizeof(Inst) * ROB_per_GPU, cudaMemcpyHostToDevice));
     double check2 = wtime();
+    //cout << "copied\n";
     tr+= (check2-check1);
     float *inp= input[i].data_ptr<float>();
-    preprocess<<<4096, 64>>>(rob_d[i],inst_d[i], factor_d[i], mean_d[i], default_val_d[i], inputPtr[i], status, Total_Trace);
+    preprocess<<<4096, 64>>>(rob_d[i],inst_d[i], factor_d[i], mean_d[i], default_val_d[i], inputPtr[i], status[i], ROB_per_GPU);
     H_ERR(cudaDeviceSynchronize());
+    //cout << "Preprocess done\n";
     double check3= wtime();
       H_ERR(cudaMemcpy(inp,inputPtr[i], sizeof(float) * ML_SIZE*ROB_per_GPU, cudaMemcpyDeviceToHost));
     // fwrite(inp, sizeof(float), ML_SIZE, pFile);
@@ -315,19 +293,19 @@ while (iteration < Batch_size){
     check3 = wtime();
     std::vector<torch::jit::IValue> inputs;
     inputs.push_back(input[i].cuda());  
-    at::Tensor outputs = lat_module.forward(inputs).toTensor();
+    at::Tensor outputs = lat_module[i].forward(inputs).toTensor();
     cudaStreamSynchronize(0);
     //cout<<outputs<<endl;
     double check4= wtime();
     inf+= (check4-check3);
     //cout<<"Inference done\n";
     H_ERR(cudaMemcpy(output[i], outputs.data_ptr<float>(), sizeof(float) * ROB_per_GPU*22, cudaMemcpyHostToDevice));
-    update<<<4096,64>>>(rob_d[i], output[i], factor_d[i], mean_d[i], status, ROB_per_GPU);
+    update<<<4096,64>>>(rob_d[i], output[i], factor_d[i], mean_d[i], status[i], ROB_per_GPU);
     H_ERR(cudaDeviceSynchronize());
   }
   //cout<<"Update done\n";
   double check5=wtime();
-  upd+=(check5-check4);
+  //upd+=(check5-check4);
   iteration++;
 }
 fclose(pFile);
@@ -335,16 +313,18 @@ printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
-result<<<1, 1>>>(curTick, Total_Trace, Instructions);
-H_ERR(cudaDeviceSynchronize());
+for(int i=0; i<nGPUs; i++){
+	 H_ERR(cudaSetDevice(i));
+	result<<<1, 1>>>(rob_d[i], ROB_per_GPU, Instructions);
+	H_ERR(cudaDeviceSynchronize());
+}
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 //cout << "Total time: " << (end_ - start_) << endl;
 #ifdef RUN_TRUTH
 cout << "Truth"
      << "\n";
 #endif
-return 0;
-     cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
+     //cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
 cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";

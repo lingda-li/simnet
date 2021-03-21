@@ -11,10 +11,14 @@ find_package(Threads)
 find_package(CUDA REQUIRED)
 find_package(TensorRT REQUIRED)
 
-add_executable(trt_simulator trt_simulator_parallel.cu)
-add_executable(libtorch_simulator libtorch_simulator_parallel.cu)
+add_executable(trt_simulator trt_sim.cu)
+add_executable(libtorch_simulator libtorch_sim.cu)
+add_executable(libtorch_n_simulator libtorch_sim_nGPU.cu)
+add_executable(trt_n_simulator trt_sim_nGPU.cu)
 
 target_include_directories(trt_simulator PUBLIC ${CUDA_INCLUDE_DIRS} ${TensorRT_INCLUDE_DIRS})
-
+target_include_directories(trt_n_simulator PUBLIC ${CUDA_INCLUDE_DIRS} ${TensorRT_INCLUDE_DIRS})
 target_link_libraries(trt_simulator PUBLIC ${OpenMP_CXX_FLAGS} ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TensorRT_LIBRARIES} ${TORCH_LIBRARIES})
+target_link_libraries(trt_n_simulator PUBLIC ${OpenMP_CXX_FLAGS} ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TensorRT_LIBRARIES} ${TORCH_LIBRARIES})
 target_link_libraries(libtorch_simulator PUBLIC ${OpenMP_CXX_FLAGS} ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TORCH_LIBRARIES})
+target_link_libraries(libtorch_n_simulator PUBLIC ${OpenMP_CXX_FLAGS} ${CUDA_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} ${TORCH_LIBRARIES})

@@ -132,20 +132,20 @@ int main(int argc, char *argv[])
 {
   printf("args count: %d\n", argc);
 #ifdef CLASSIFY
-  if (argc != 8)
+  if (argc != 9)
   {
     cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <class module> <variances> <# inst> <Total trace>" << endl;
     return 0;
   }
 #else
-  if (argc != 7)
+  if (argc != 8)
   {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <Total trace> <#Insts>" << endl;
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <variances> <Total trace> <#Insts> <ROB_per_GPU> <nGPUs>" << endl;
 #endif
   return 0;
 }
 int arg_idx = 4;
-float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
+float *varPtr = read_numbers(argv[4], TD_SIZE);
 for (int i = 0; i < TD_SIZE; i++)
 {
 #ifdef NO_MEAN
@@ -155,41 +155,64 @@ for (int i = 0; i < TD_SIZE; i++)
   default_val[i] = -mean[i] / factor[i];
   //cout<<default_val[i]<<" ";
 }
-//cout<<endl;
-int Total_Trace = atoi(argv[arg_idx++]);
-int Instructions = atoi(argv[arg_idx++]);
+
+  const int nGPUs= atoi(argv[7]);
+  const int ROB_per_GPU= atoi(argv[6]);
+  int count[2];
+  H_ERR(cudaGetDeviceCount(count));
+  if (count[0] < nGPUs) {
+   cerr << "GPUs not enough" << endl;
+   return 0;
+  }
+printf("GPU loaded\n");
+
+int Total_Trace = nGPUs * ROB_per_GPU;
+int Instructions = atoi(argv[5]);
 std::string model_path(argv[3]);
-TRTUniquePtr<nvinfer1::ICudaEngine> engine{nullptr};
-TRTUniquePtr<nvinfer1::IExecutionContext> context{nullptr};
-deseralizer(engine, context, model_path);
-std::vector<void *> buffers(engine->getNbBindings());
-std::vector<nvinfer1::Dims> input_dims;
-std::vector<nvinfer1::Dims> output_dims;
-for (size_t i = 0; i < engine->getNbBindings(); ++i)
+TRTUniquePtr<nvinfer1::ICudaEngine> engine[nGPUs]{nullptr};
+TRTUniquePtr<nvinfer1::IExecutionContext> context[nGPUs]{nullptr};
+float *inputPtr[nGPUs], *output[nGPUs];
+void *buffers[nGPUs][2];
+//std::vector<void *> buffers(engine[0]->getNbBindings());
+//std::vector<void *> buffers[nGPUs][2];
+//void *buffers[nGPUs][2];
+std::vector<nvinfer1::Dims> input_dims[nGPUs];
+std::vector<nvinfer1::Dims> output_dims[nGPUs];
+//float *inputPtr[nGPUs], *output[nGPUs];
+
+//#pragma omp parallel for
+    for (int j = 0; j < nGPUs; j++) {
+	    H_ERR(cudaSetDevice(j));
+	   //std::vector<void *> buffers(engine[j]->getNbBindings());
+	    //std::vector<void *> buffer[2];
+	    //buffer[j]= &buffers;
+	    deseralizer(engine[j], context[j], model_path);
+for (size_t i = 0; i < engine[j]->getNbBindings(); ++i)
 {
-  auto binding_size = getSizeByDim(engine->getBindingDimensions(i)) * sizeof(float);
-  std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine->getBindingDimensions(i).d[1]<< "\n";
+  auto binding_size = getSizeByDim(engine[j]->getBindingDimensions(i)) * sizeof(float);
+  std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine[j]->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine[j]->getBindingDimensions(i).d[1]<< "\n";
   //cudaMalloc(&buffers[i], binding_size);
-  if (engine->bindingIsInput(i))
+  if (engine[j]->bindingIsInput(i))
   {
-    input_dims.emplace_back(engine->getBindingDimensions(i));
+    input_dims[j].emplace_back(engine[j]->getBindingDimensions(i));
   }
   else
   {
-    output_dims.emplace_back(engine->getBindingDimensions(i));
+    output_dims[j].emplace_back(engine[j]->getBindingDimensions(i));
   }
 }
-if (input_dims.empty() || output_dims.empty())
+if (input_dims[j].empty() || output_dims[j].empty())
 {
   std::cerr << "Expect at least one input and one output for network\n";
   return -1;
 }
-//std::cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
-float *inputPtr, *output;
-H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * ML_SIZE * Total_Trace));
-H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 22));
-buffers[0] = inputPtr;
-buffers[1] = output;
+std::cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
+//float *inputPtr[nGPUs], *output[nGPUs];
+H_ERR(cudaMalloc((void **)&inputPtr[j], sizeof(float) * ML_SIZE * ROB_per_GPU));
+H_ERR(cudaMalloc((void **)&output[j], sizeof(float) * Total_Trace * 22));
+buffers[j][0]= inputPtr[j];
+buffers[j][1]= output[j];
+}
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *trace;
 Tick *aux_trace;
@@ -220,33 +243,35 @@ for (int i = 0; i < Total_Trace; i++)
   trace_all[i] = trace + offset * TRACE_DIM;
   aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
 }
-// printf("Allocated. \n");
-//return 0;
-float *factor_d, *default_val_d, *mean_d;
-//float *train_data;
-Tick *curTick, *lastFetchTick;
-int *status;
-H_ERR(cudaMalloc((void **)&curTick, sizeof(Tick) * Total_Trace));
-H_ERR(cudaMalloc((void **)&lastFetchTick, sizeof(Tick) * Total_Trace));
-H_ERR(cudaMalloc((void **)&status, sizeof(int) * Total_Trace));
-cudaMemset(curTick, 0, Total_Trace);
-cudaMemset(lastFetchTick, 0, Total_Trace);
-//cudaHostAlloc((void **)&train_data, Total_Trace *INST_SIZE * sizeof(float),
-  //            cudaHostAllocDefault);
-struct ROB *rob= new ROB[Total_Trace];
-struct Inst *inst= new Inst[Total_Trace];
-struct ROB *rob_d;
-struct Inst *inst_d;
-H_ERR(cudaMalloc((void **)&rob_d, sizeof(ROB)*Total_Trace));
-H_ERR(cudaMalloc((void **)&inst_d, sizeof(Inst)*Total_Trace));
-//H_ERR(cudaMalloc((void **)&rob_d, sizeof(ROB)*Total_Trace));
-// For factor, mean and default values
-H_ERR(cudaMalloc((void **)&factor_d, sizeof(float) * (TD_SIZE)));
-H_ERR(cudaMalloc((void **)&mean_d, sizeof(float) * (TD_SIZE)));
-H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float) * (TD_SIZE)));
-H_ERR(cudaMemcpy(factor_d, &factor, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
-H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
-H_ERR(cudaMemcpy(mean_d, &mean, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
+
+int *status[nGPUs];
+//struct ROB *rob[nGPUs];
+struct Inst *inst[nGPUs];
+struct ROB *rob_d[nGPUs];
+struct Inst *inst_d[nGPUs];
+float *factor_d[nGPUs], *default_val_d[nGPUs], *mean_d[nGPUs];
+
+
+#pragma omp parallel for
+    for (int i = 0; i < nGPUs; i++) {
+      inst[i]= new Inst[ROB_per_GPU];
+      H_ERR(cudaSetDevice(i));
+      H_ERR(cudaMalloc((void **)&status[i], sizeof(int) * ROB_per_GPU));
+      H_ERR(cudaMalloc((void **)&rob_d[i], sizeof(ROB)*ROB_per_GPU));
+      H_ERR(cudaMalloc((void **)&inst_d[i], sizeof(Inst)*ROB_per_GPU));
+      H_ERR(cudaMalloc((void **)&inputPtr[i], sizeof(float) * ML_SIZE * ROB_per_GPU));
+      H_ERR(cudaMalloc((void **)&output[i], sizeof(float) * ROB_per_GPU * 22));
+      // For factor, mean and default values
+      H_ERR(cudaMalloc((void **)&factor_d[i], sizeof(float) * (TD_SIZE)));
+      H_ERR(cudaMalloc((void **)&mean_d[i], sizeof(float) * (TD_SIZE)));
+      H_ERR(cudaMalloc((void **)&default_val_d[i], sizeof(float) * (TD_SIZE)));
+      H_ERR(cudaMemcpy(factor_d[i], &factor, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
+      H_ERR(cudaMemcpy(default_val_d[i], &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
+      H_ERR(cudaMemcpy(mean_d[i], &mean, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
+    }
+
+
+
 struct timeval total_start, total_end;
 int iteration = 0;
 gettimeofday(&total_start, NULL);
@@ -257,66 +282,77 @@ FILE *pFile;
 pFile= fopen ("trtcustom.bin", "wb");
 #endif
 while (iteration < Batch_size){
-  if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
+  if((iteration % 50)==0){}
+	  cout << "Iteration: " << iteration << endl;
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],i))
+    int GPU_ID= i/ROB_per_GPU;
+    int index= i % ROB_per_GPU;
+    if (!inst[GPU_ID][index].read_sim_mem(trace_all[i], aux_trace_all[i],i))
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
   } 
-  double check1 = wtime();
+    double check1 = wtime();
   red+= (check1-st);
-  cout<<"trace read\n";
-  H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
-  double check2 = wtime();
-  tr+= (check2-check1);
-  preprocess<<<4096, 64>>>(rob_d,inst_d, factor_d, mean_d, default_val_d, inputPtr, status, Total_Trace);
-  H_ERR(cudaDeviceSynchronize());
-  cout<<"preprocess done\n";
-#ifdef DEBUG
-  float *inp;
-  inp= (float*) malloc(ML_SIZE*Total_Trace*sizeof(float));
-  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
-  fwrite(inp, sizeof(float), ML_SIZE, pFile);
-#endif
-  double check3 = wtime();
-  pre+= (check3-check2);
-  //context->enqueue(Total_Trace, buffers.data(), 0, nullptr); 
-  context->enqueueV2(buffers.data(), 0, nullptr);
-  //context->executeV2(buffers.data());
-  cudaStreamSynchronize(0);
-  double check4= wtime();
-  inf+= (check4-check3);
-  cout<<"Inference done\n";
-
-  update<<<4096,32>>>(rob_d, output, factor_d, mean_d,  status, Total_Trace);
-  H_ERR(cudaDeviceSynchronize());
+  //cout<< "Instructions read\n";
+  #pragma omp parallel for
+    for (int i = 0; i < nGPUs; i++) {
+    //cout<< "GPU: "<<i<< " "<<wtime()<<endl;
+            H_ERR(cudaSetDevice(i));
+    //cout<<"set device: \n";
+    H_ERR(cudaMemcpy(inst_d[i], inst[i], sizeof(Inst) * ROB_per_GPU, cudaMemcpyHostToDevice));
+    double check2 = wtime();
+    //cout << "copied\n";
+    tr+= (check2-check1);
+    preprocess<<<4096, 64>>>(rob_d[i],inst_d[i], factor_d[i], mean_d[i], default_val_d[i], inputPtr[i], status[i], ROB_per_GPU);
+    H_ERR(cudaDeviceSynchronize());
+    //cout << "Preprocess done\n";
+    double check3= wtime();
+         // fwrite(inp, sizeof(float), ML_SIZE, pFile); 
+    context[i]->enqueueV2(buffers[i], 0, nullptr);
+    //context->executeV2(buffers.data());
+    H_ERR(cudaStreamSynchronize(0));
+    double check4= wtime();
+    inf+= (check4-check3);
+    //cout<<"Inference done\n";
+    update<<<4096,64>>>(rob_d[i], output[i], factor_d[i], mean_d[i], status[i], ROB_per_GPU);
+    H_ERR(cudaDeviceSynchronize());
+  }
+  //cout<<"Update done\n";
   double check5=wtime();
-  upd+=(check5-check4);
+  //upd+=(check5-check4);
   iteration++;
-}
+    }
 #ifdef DEBUG
   fclose(pFile);
 #endif
 printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red/Instructions*1000000, tr/Instructions*1000000, pre/Instructions*1000000, inf/Instructions*1000000, upd/Instructions*1000000);
 double end_ = wtime();
-for (void *buf : buffers)
+/*
+for (int a=0; a<nGPUs; a++){
+
+	for (void *buf : buffers[a])
 {
   cudaFree(buf);
-}
+}}
+*/
 gettimeofday(&total_end, NULL);
-result<<<1, 1>>>(rob_d, Total_Trace, Instructions);
-H_ERR(cudaDeviceSynchronize());
+for(int i=0; i<nGPUs; i++){
+  H_ERR(cudaSetDevice(i));
+  result<<<1, 1>>>(rob_d[i], ROB_per_GPU, Instructions);
+  H_ERR(cudaDeviceSynchronize());
+}
+//H_ERR(cudaDeviceSynchronize());
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 cout << "Total time: " << (end_ - start_) << endl;
 #ifdef RUN_TRUTH
 cout << "Truth"
      << "\n";
 #endif
-cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
+//cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
 cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";
