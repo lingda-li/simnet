@@ -385,13 +385,15 @@ struct ROB
   
 
 __global__ void
-result(Tick *curTick, int Total_Trace, int instructions)
+result(ROB *rob_d, int Total_Trace, int instructions)
 {
   Tick sum = 0;
   for (int i = 0; i < Total_Trace; i++)
   {
-    sum += curTick[i];
-    //printf("T: %d, Tick: %lu\n", i, curTick[i]);
+    //printf("I: %d\n",i);
+    ROB *rob= &rob_d[i];	  
+    sum += rob->curTick;
+    //printf("T: %d, Tick: %lu\n", i, rob->curTick);
   }
   printf("~~~~~~~~~Instructions: %d, Batch: %d, Prediction: %lu ~~~~~~~~~\n", instructions,Total_Trace, sum);
 }
@@ -445,9 +447,7 @@ update(ROB *rob_d, float *output, float *factor, float *mean, int *status, int T
 #endif   
     Tick nextFetchTick = 0;
     rob= &rob_d[index];
-    Tick curTick= rob->curTick;
-    Tick lastFetchTick= rob->lastFetchTick;
-    int tail= rob->dec(rob->tail);
+        int tail= rob->dec(rob->tail);
     //int rob_offset = ROBSIZE * INST_SIZE * index;
     int context_offset = rob->dec(rob->tail) * INST_SIZE;
     //float *rob_pointer = insts + rob_offset + context_offset;
@@ -482,9 +482,9 @@ update(ROB *rob_d, float *output, float *factor, float *mean, int *status, int T
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
       int_finish_lat = MIN_COMP_LAT;
-   #ifdef DEBUG
-    printf("%ld, %.3f, %d, %.3f, %d\n",curTick[index], output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
-    #endif 
+   //#ifdef DEBUG
+    printf("%ld, %.3f, %d, %.3f, %d\n",rob->curTick, output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
+    //#endif 
 #if defined(COMBINED)
      if (f_class <= 8)
         int_fetch_lat = f_class;
@@ -503,28 +503,28 @@ update(ROB *rob_d, float *output, float *factor, float *mean, int *status, int T
     printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
 #endif
     rob->insts[tail].tickNum = int_finish_lat;
-    rob->insts[tail].completeTick = curTick[index] + int_finish_lat + int_fetch_lat;
-    lastFetchTick[index] = curTick[index];
+    rob->insts[tail].completeTick = rob->curTick + int_finish_lat + int_fetch_lat;
+    rob->lastFetchTick = rob->curTick;
     if (int_fetch_lat)
     {
             status[index]=1;
-      nextFetchTick = curTick[index] + int_fetch_lat;
+      nextFetchTick = rob->curTick + int_fetch_lat;
         //printf("Break with int fetch\n");
     }
     else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     if ((rob->is_full() || rob->saturated) && int_fetch_lat)
     {
-      curTick[index] = max(rob[tail].getHeadTick(), nextFetchTick);
-      //printf("getting max\n");
+      rob->curTick = max(rob[tail].getHeadTick(), nextFetchTick);
+      //printf("getting max, cur = %lu\n",rob->curTick);
     }
     else if (int_fetch_lat)
     {
-      curTick[index] = nextFetchTick;
+      rob->curTick= nextFetchTick;
       //printf("fastforward to fetch\n");
     }
     else if (rob->saturated || rob->is_full())
     {
-      curTick[index] = rob[tail].getHead()->completeTick;
+      rob->curTick = rob[tail].getHead()->completeTick;
       //printf("fastforward to retire\n");
     }
     //printf("Head: %d, Len at the end: %d\n",rob->head,rob->len);
