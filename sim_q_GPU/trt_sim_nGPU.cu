@@ -172,25 +172,16 @@ std::string model_path(argv[3]);
 TRTUniquePtr<nvinfer1::ICudaEngine> engine[nGPUs]{nullptr};
 TRTUniquePtr<nvinfer1::IExecutionContext> context[nGPUs]{nullptr};
 float *inputPtr[nGPUs], *output[nGPUs];
-void *buffers[nGPUs][2];
-//std::vector<void *> buffers(engine[0]->getNbBindings());
-//std::vector<void *> buffers[nGPUs][2];
-//void *buffers[nGPUs][2];
 std::vector<nvinfer1::Dims> input_dims[nGPUs];
 std::vector<nvinfer1::Dims> output_dims[nGPUs];
-//float *inputPtr[nGPUs], *output[nGPUs];
-
-//#pragma omp parallel for
+#pragma omp parallel for
     for (int j = 0; j < nGPUs; j++) {
 	    H_ERR(cudaSetDevice(j));
-	   //std::vector<void *> buffers(engine[j]->getNbBindings());
-	    //std::vector<void *> buffer[2];
-	    //buffer[j]= &buffers;
 	    deseralizer(engine[j], context[j], model_path);
 for (size_t i = 0; i < engine[j]->getNbBindings(); ++i)
 {
   auto binding_size = getSizeByDim(engine[j]->getBindingDimensions(i)) * sizeof(float);
-  std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine[j]->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine[j]->getBindingDimensions(i).d[1]<< "\n";
+  //std::cout<<"Index: "<<i<<" Binding_size: "<<binding_size<< " Engine binding Dim 0: "<<engine[j]->getBindingDimensions(i).d[0]<<" Dim 1: "<<engine[j]->getBindingDimensions(i).d[1]<< "\n";
   //cudaMalloc(&buffers[i], binding_size);
   if (engine[j]->bindingIsInput(i))
   {
@@ -206,13 +197,10 @@ if (input_dims[j].empty() || output_dims[j].empty())
   std::cerr << "Expect at least one input and one output for network\n";
   return -1;
 }
-std::cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
+//std::cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 //float *inputPtr[nGPUs], *output[nGPUs];
-H_ERR(cudaMalloc((void **)&inputPtr[j], sizeof(float) * ML_SIZE * ROB_per_GPU));
-H_ERR(cudaMalloc((void **)&output[j], sizeof(float) * Total_Trace * 22));
-buffers[j][0]= inputPtr[j];
-buffers[j][1]= output[j];
 }
+
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *trace;
 Tick *aux_trace;
@@ -245,15 +233,14 @@ for (int i = 0; i < Total_Trace; i++)
 }
 
 int *status[nGPUs];
-//struct ROB *rob[nGPUs];
 struct Inst *inst[nGPUs];
 struct ROB *rob_d[nGPUs];
 struct Inst *inst_d[nGPUs];
 float *factor_d[nGPUs], *default_val_d[nGPUs], *mean_d[nGPUs];
-
-
+void *buffers[nGPUs][2];
 #pragma omp parallel for
     for (int i = 0; i < nGPUs; i++) {
+      //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
       inst[i]= new Inst[ROB_per_GPU];
       H_ERR(cudaSetDevice(i));
       H_ERR(cudaMalloc((void **)&status[i], sizeof(int) * ROB_per_GPU));
@@ -261,6 +248,8 @@ float *factor_d[nGPUs], *default_val_d[nGPUs], *mean_d[nGPUs];
       H_ERR(cudaMalloc((void **)&inst_d[i], sizeof(Inst)*ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&inputPtr[i], sizeof(float) * ML_SIZE * ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&output[i], sizeof(float) * ROB_per_GPU * 22));
+      buffers[i][0]= inputPtr[i];
+      buffers[i][1]= output[i];
       // For factor, mean and default values
       H_ERR(cudaMalloc((void **)&factor_d[i], sizeof(float) * (TD_SIZE)));
       H_ERR(cudaMalloc((void **)&mean_d[i], sizeof(float) * (TD_SIZE)));
@@ -270,21 +259,21 @@ float *factor_d[nGPUs], *default_val_d[nGPUs], *mean_d[nGPUs];
       H_ERR(cudaMemcpy(mean_d[i], &mean, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
     }
 
-
-
 struct timeval total_start, total_end;
 int iteration = 0;
-gettimeofday(&total_start, NULL);
 double start_ = wtime();
 double red=0,pre=0, tr=0,inf=0,upd=0;
 #ifdef DEBUG
 FILE *pFile;
 pFile= fopen ("trtcustom.bin", "wb");
 #endif
+gettimeofday(&total_start, NULL);
+//printf("I: %d, Input: %p, Output: %p\n",0,inputPtr[0],output[0]);
 while (iteration < Batch_size){
-  if((iteration % 50)==0){}
-	  cout << "Iteration: " << iteration << endl;
+  if((iteration % 50)==0){
+  cout << "Iteration: " << iteration << endl;}
   double st = wtime();
+  
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
@@ -295,41 +284,37 @@ while (iteration < Batch_size){
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
   } 
     double check1 = wtime();
-  red+= (check1-st);
-  //cout<< "Instructions read\n";
+    red+= (check1-st);
+    //cout<< "Instructions read\n";
   #pragma omp parallel for
     for (int i = 0; i < nGPUs; i++) {
-    //cout<< "GPU: "<<i<< " "<<wtime()<<endl;
-            H_ERR(cudaSetDevice(i));
-    //cout<<"set device: \n";
-    H_ERR(cudaMemcpy(inst_d[i], inst[i], sizeof(Inst) * ROB_per_GPU, cudaMemcpyHostToDevice));
-    double check2 = wtime();
-    //cout << "copied\n";
-    tr+= (check2-check1);
+     H_ERR(cudaSetDevice(i));
+     H_ERR(cudaMemcpy(inst_d[i], inst[i], sizeof(Inst) * ROB_per_GPU, cudaMemcpyHostToDevice));
+    //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
     preprocess<<<4096, 64>>>(rob_d[i],inst_d[i], factor_d[i], mean_d[i], default_val_d[i], inputPtr[i], status[i], ROB_per_GPU);
     H_ERR(cudaDeviceSynchronize());
     //cout << "Preprocess done\n";
     double check3= wtime();
          // fwrite(inp, sizeof(float), ML_SIZE, pFile); 
+    //printf("I: %d, buffer: %p, buffer[0]: %p, buffer[1]: %p\n",i,buffers[i], buffers[i][0], buffers[i][1]);
     context[i]->enqueueV2(buffers[i], 0, nullptr);
     //context->executeV2(buffers.data());
     H_ERR(cudaStreamSynchronize(0));
-    double check4= wtime();
-    inf+= (check4-check3);
     //cout<<"Inference done\n";
+    //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
     update<<<4096,64>>>(rob_d[i], output[i], factor_d[i], mean_d[i], status[i], ROB_per_GPU);
     H_ERR(cudaDeviceSynchronize());
   }
-  //cout<<"Update done\n";
-  double check5=wtime();
-  //upd+=(check5-check4);
+  double check5=wtime(); 
+  pre+= (check5-check1);
   iteration++;
     }
 #ifdef DEBUG
   fclose(pFile);
 #endif
-printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
-printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red/Instructions*1000000, tr/Instructions*1000000, pre/Instructions*1000000, inf/Instructions*1000000, upd/Instructions*1000000);
+printf("%.4f, %.4f\n",red/Instructions*1000000, pre/Instructions*1000000);
+  //printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
+//printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red/Instructions*1000000, tr/Instructions*1000000, pre/Instructions*1000000, inf/Instructions*1000000, upd/Instructions*1000000);
 double end_ = wtime();
 /*
 for (int a=0; a<nGPUs; a++){

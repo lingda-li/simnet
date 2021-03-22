@@ -482,9 +482,9 @@ update(ROB *rob_d, float *output, float *factor, float *mean, int *status, int T
     {int_fetch_lat = 0;}
     if (int_finish_lat < MIN_COMP_LAT)
       int_finish_lat = MIN_COMP_LAT;
-   //#ifdef DEBUG
+   #ifdef DEBUG
     printf("%ld, %.3f, %d, %.3f, %d\n",rob->curTick, output[offset+0], int_fetch_lat, output[offset+1], int_finish_lat);
-    //#endif 
+    #endif 
 #if defined(COMBINED)
      if (f_class <= 8)
         int_fetch_lat = f_class;
