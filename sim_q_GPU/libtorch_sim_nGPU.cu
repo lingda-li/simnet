@@ -180,7 +180,7 @@ torch::jit::script::Module lat_module[nGPUs];
     }
    catch (const c10::Error &e) {
     cerr << "error loading the model\n";
-    return 0;
+    //return 0;
   }
 }
 
