@@ -22,6 +22,10 @@ lat_loss_fn = nn.MSELoss()
 cla_loss_fn = nn.CrossEntropyLoss()
 
 
+def combine_loss(lat_loss, cla_loss1, cla_loss2, cla_loss3):
+    return 0.02 * lat_loss + cla_loss1 + cla_loss2 + cla_loss3
+
+
 def train(args, model, device, train_loader, optimizer, epoch, rank):
     model.train()
     total_lat_loss = 0
@@ -38,7 +42,7 @@ def train(args, model, device, train_loader, optimizer, epoch, rank):
         cla_loss1 = cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0])
         cla_loss2 = cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1])
         cla_loss3 = cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2])
-        loss = 0.02 * lat_loss + cla_loss1 + cla_loss2 + cla_loss3
+        loss = combine_loss(lat_loss, cla_loss1, cla_loss2, cla_loss3)
         total_lat_loss += lat_loss.item()
         total_cla_loss1 += cla_loss1.item()
         total_cla_loss2 += cla_loss2.item()
@@ -58,11 +62,11 @@ def train(args, model, device, train_loader, optimizer, epoch, rank):
     end_t = time.time()
     if args.distributed:
         dist.barrier()
-    print('Train Epoch: {} \tLat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tTime: {:.1f}'.format(
-        epoch, total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3, end_t - start_t), flush=True)
+    print('Train Epoch {}: {} \tLat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tTime: {:.1f}'.format(
+        rank, epoch, total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3, end_t - start_t), flush=True)
 
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, rank):
     model.eval()
     total_lat_loss = 0
     total_cla_loss1 = 0
@@ -80,12 +84,17 @@ def test(model, device, test_loader):
     total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
     total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
     total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
-    print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
-        total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
+    total_loss = combine_loss(total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3)
+    print('Test set {}: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tCombined Loss: {:.6f}'.format(
+        rank, total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3, total_loss), flush=True)
+    return total_loss
 
 
-def save_checkpoint(name, model, optimizer, epoch):
-    name = 'checkpoints/' + generate_model_name(name, epoch) + '.pt'
+def save_checkpoint(name, model, optimizer, epoch, best=False):
+    if best:
+        name = 'checkpoints/' + generate_model_name(name) + '_best.pt'
+    else:
+        name = 'checkpoints/' + generate_model_name(name, epoch) + '.pt'
     saved_dict = {'epoch': epoch,
                   'optimizer_state_dict': optimizer.state_dict()}
     if torch.cuda.device_count() > 1:
@@ -125,7 +134,7 @@ def main_rank(rank, args):
     torch.manual_seed(args.seed)
 
     dataset1 = QQDataset(data_file_name, total_size, context_length*inst_length, 0, args.train_size, num_classes=num_classes)
-    dataset2 = QQDataset(data_file_name, total_size, context_length*inst_length, test_start, test_end, num_classes=num_classes)
+    dataset2 = QQDataset(data_file_name, total_size, context_length*inst_length, valid_start, valid_end, num_classes=num_classes)
     kwargs = {'batch_size': args.batch_size}
     if use_cuda:
         cuda_kwargs = {'num_workers': 0,
@@ -137,9 +146,11 @@ def main_rank(rank, args):
         #    dataset1, num_replicas=args.world_size, rank=global_rank, shuffle=False)
         train_sampler = torch.utils.data.distributed.DistributedSampler(dataset1, shuffle=False)
         train_loader = torch.utils.data.DataLoader(dataset1, sampler=train_sampler, **kwargs)
+        test_sampler = torch.utils.data.distributed.DistributedSampler(dataset2, shuffle=False)
+        test_loader = torch.utils.data.DataLoader(dataset2, sampler=test_sampler, **kwargs)
     else:
         train_loader = torch.utils.data.DataLoader(dataset1, **kwargs)
-    test_loader = torch.utils.data.DataLoader(dataset2, **kwargs)
+        test_loader = torch.utils.data.DataLoader(dataset2, **kwargs)
 
     model = eval(args.models[0])
     if rank == 0:
@@ -156,21 +167,31 @@ def main_rank(rank, args):
         model.to(device)
     optimizer = optim.Adam(model.parameters())
     start_epoch = 1
+    min_loss = 1000
     if len(args.models) == 2:
         start_epoch = load_checkpoint(rank, args.models[1], model, optimizer, device)
 
     #scheduler = StepLR(optimizer, step_size=1)
-    if args.distributed:
-        dist.barrier()
     for epoch in range(start_epoch, args.epochs + 1):
         if args.distributed:
+            dist.barrier()
             train_sampler.set_epoch(epoch)
         train(args, model, device, train_loader, optimizer, epoch, rank)
+        if args.distributed:
+            test_sampler.set_epoch(epoch)
+        cur_loss = test(model, device, test_loader, rank)
+        cur_loss = torch.tensor(cur_loss).to(device)
+        if args.distributed:
+            dist.all_reduce(cur_loss, op=dist.reduce_op.SUM)
+            cur_loss = cur_loss.item() / args.world_size
         if rank == 0:
-            test(model, device, test_loader)
+            if args.save_model and epoch % args.save_interval == 0:
+                save_checkpoint(args.models[0], model, optimizer, epoch)
+            if args.save_model and cur_loss < min_loss:
+                print("Find new minimal loss", cur_loss, "to replace", min_loss)
+                min_loss = cur_loss
+                save_checkpoint(args.models[0], model, optimizer, epoch, True)
         #scheduler.step()
-        if args.save_model and epoch % args.save_interval == 0 and rank == 0:
-            save_checkpoint(args.models[0], model, optimizer, epoch)
 
     if args.distributed:
         # Clean up.
