@@ -23,7 +23,7 @@ cla_loss_fn = nn.CrossEntropyLoss()
 
 
 def combine_loss(lat_loss, cla_loss1, cla_loss2, cla_loss3):
-    return 0.02 * lat_loss + cla_loss1 + cla_loss2 + cla_loss3
+    return 0.02 * lat_loss + 2 * cla_loss1 + cla_loss2 + cla_loss3
 
 
 def train(args, model, device, train_loader, optimizer, epoch, rank):
@@ -90,12 +90,13 @@ def test(model, device, test_loader, rank):
     return total_loss
 
 
-def save_checkpoint(name, model, optimizer, epoch, best=False):
+def save_checkpoint(name, model, optimizer, epoch, best_loss, best=False):
     if best:
         name = 'checkpoints/' + generate_model_name(name) + '_best.pt'
     else:
         name = 'checkpoints/' + generate_model_name(name, epoch) + '.pt'
     saved_dict = {'epoch': epoch,
+                  'best_loss': best_loss,
                   'optimizer_state_dict': optimizer.state_dict()}
     if torch.cuda.device_count() > 1:
         model_dict = {'model_state_dict': model.module.state_dict()}
@@ -121,7 +122,15 @@ def load_checkpoint(rank, name, model, optimizer, device):
     start_epoch = cp['epoch']
     if rank == 0:
         print("Loaded checkpoint", name)
-    return start_epoch + 1
+    return start_epoch + 1, cp['best_loss']
+
+
+def adjust_learning_rate(optimizer, epoch, lr):
+    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    lr = lr * (0.1 ** (epoch // 30))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
 
 
 def main_rank(rank, args):
@@ -166,31 +175,36 @@ def main_rank(rank, args):
     else:
         model.to(device)
     optimizer = optim.Adam(model.parameters())
+    ori_lr = optimizer.defaults['lr']
     start_epoch = 1
     min_loss = 1000
     if len(args.models) == 2:
-        start_epoch = load_checkpoint(rank, args.models[1], model, optimizer, device)
+        start_epoch, min_loss = load_checkpoint(rank, args.models[1], model, optimizer, device)
 
     #scheduler = StepLR(optimizer, step_size=1)
     for epoch in range(start_epoch, args.epochs + 1):
         if args.distributed:
             dist.barrier()
-            train_sampler.set_epoch(epoch)
+            train_sampler.set_epoch(epoch - 1)
+        lr = adjust_learning_rate(optimizer, epoch - 1, ori_lr)
+        if rank == 0:
+            print("Epoch", epoch, "with lr", lr, flush=True)
         train(args, model, device, train_loader, optimizer, epoch, rank)
         if args.distributed:
-            test_sampler.set_epoch(epoch)
+            test_sampler.set_epoch(epoch - 1)
         cur_loss = test(model, device, test_loader, rank)
         cur_loss = torch.tensor(cur_loss).to(device)
         if args.distributed:
             dist.all_reduce(cur_loss, op=dist.reduce_op.SUM)
             cur_loss = cur_loss.item() / args.world_size
         if rank == 0:
-            if args.save_model and epoch % args.save_interval == 0:
-                save_checkpoint(args.models[0], model, optimizer, epoch)
-            if args.save_model and cur_loss < min_loss:
+            if cur_loss < min_loss:
                 print("Find new minimal loss", cur_loss, "to replace", min_loss)
                 min_loss = cur_loss
-                save_checkpoint(args.models[0], model, optimizer, epoch, True)
+                if args.save_model:
+                    save_checkpoint(args.models[0], model, optimizer, epoch, min_loss, True)
+            if args.save_model and epoch % args.save_interval == 0:
+                save_checkpoint(args.models[0], model, optimizer, epoch, min_loss)
         #scheduler.step()
 
     if args.distributed:
