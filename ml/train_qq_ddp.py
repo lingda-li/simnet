@@ -15,7 +15,7 @@ from torch.optim.lr_scheduler import StepLR
 from custom_data import *
 from utils import profile_model, generate_model_name
 from models import *
-from cfg_qq import *
+from cfg import *
 
 
 lat_loss_fn = nn.MSELoss()

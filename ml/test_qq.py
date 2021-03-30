@@ -10,7 +10,7 @@ import torch.optim as optim
 from custom_data import *
 from utils import profile_model, get_inst_type
 from models import *
-from cfg_qq import *
+from cfg import *
 
 
 lat_loss_fn = nn.MSELoss()

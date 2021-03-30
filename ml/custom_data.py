@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from torch.utils.data import Dataset
+from cfg import min_complete_lat, min_store_lat
 
 
 class MemoryMappedDataset(Dataset):
@@ -101,9 +102,9 @@ class QQDataset(Dataset):
         if self.stat is not None:
             y_cla *= np.sqrt(self.stat[0:3])
         y_cla = np.rint(y_cla)
-        y_cla[1] -= 6
+        y_cla[1] -= min_complete_lat
         if y_cla[2] > 0:
-            y_cla[2] -= 9
+            y_cla[2] -= (min_store_lat - 1)
         y_cla[y_cla > self.num_classes - 1] = self.num_classes - 1
         x[0:3] = 0
         x = torch.from_numpy(x.astype('f'))

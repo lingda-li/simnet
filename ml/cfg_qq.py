@@ -20,3 +20,5 @@ context_length = 111
 inst_length = 50
 
 num_classes = 10
+min_complete_lat = 6
+min_store_lat = 10
