@@ -89,6 +89,8 @@ def generate_model_name(name, epoch=None):
     name = name.replace("]", "_")
     name = name.replace("-", "_")
     name = name.replace("=", "_")
+    if len(name) > 40:
+        name = name[0:40]
     if epoch is not None:
         name += "_e" + str(epoch)
     name += "_" + datetime.now().strftime("%m%d%y")

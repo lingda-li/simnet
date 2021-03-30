@@ -195,7 +195,7 @@ def main_rank(rank, args):
         cur_loss = test(model, device, test_loader, rank)
         cur_loss = torch.tensor(cur_loss).to(device)
         if args.distributed:
-            dist.all_reduce(cur_loss, op=dist.reduce_op.SUM)
+            dist.all_reduce(cur_loss, op=dist.ReduceOp.SUM)
             cur_loss = cur_loss.item() / args.world_size
         if rank == 0:
             if cur_loss < min_loss:
