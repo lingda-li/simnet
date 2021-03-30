@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cassert>
 #include <cmath>
+#include <string>
 #include <sys/time.h>
 
 #include <torch/script.h> // One-stop header.
@@ -15,21 +16,31 @@ using namespace std;
 //#define VERBOSE
 //#define RUN_TRUTH
 //#define DUMP_ML_INPUT
+//#define DUMP_IPC
+#define DUMP_IPC_INTERVAL 1000
 #define NO_MEAN
 #define GPU
+
+// Classic CPU dataset.
+#define ROBSIZE 94
+#define SQSIZE 17
+#define MIN_COMP_LAT 6
+#define MIN_ST_LAT 10
+
+// PostK CPU dataset.
+//#define ROBSIZE 185
+//#define SQSIZE 25
+//#define MIN_COMP_LAT 6
+//#define MIN_ST_LAT 9
 
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define TD_SIZE 50
-#define ROBSIZE 94
-#define SQSIZE 17
 #define CONTEXTSIZE (ROBSIZE + SQSIZE)
 #define TICK_STEP 500.0
 #define FETCH_BANDWIDTH 3
 #define RETIRE_BANDWIDTH 8
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
-#define MIN_COMP_LAT 6
-#define MIN_ST_LAT 10
 #define CLASS_NUM 10
 
 #define INSQ_BIT 4
@@ -285,6 +296,29 @@ int main(int argc, char *argv[]) {
     scale_factor = atof(argv[arg_idx++]);
     cout << "Scale prediction with " << scale_factor << "\n";
   }
+#ifdef DUMP_IPC
+  string ipc_trace_name = argv[1];
+#ifdef RUN_TRUTH
+  ipc_trace_name += "_true";
+#else
+  string model_name = argv[3];
+  model_name.replace(0, 7, "_");
+  model_name.replace(model_name.end()-3, model_name.end(), "");
+  ipc_trace_name += model_name;
+#endif
+  time_t rawtime = time(0);
+  struct tm* timeinfo = localtime(&rawtime);
+  char buffer[80];
+  strftime(buffer,sizeof(buffer),"%m%d%y",timeinfo);
+  string time_str(buffer);
+  ipc_trace_name += "_" + time_str + ".ipc";
+  ofstream ipc_trace(ipc_trace_name);
+  if (!ipc_trace.is_open()) {
+    cerr << "Cannot open ipc trace file.\n";
+    return 0;
+  }
+  cout << "Write IPC trace to " << ipc_trace_name << "\n";
+#endif
 
   for (int i = 0; i < TD_SIZE; i++) {
     default_val[i] = 0;
@@ -320,6 +354,9 @@ int main(int argc, char *argv[]) {
   Tick Case3 = 0;
   Tick Case4 = 0;
   Tick Case5 = 0;
+#ifdef DUMP_IPC
+  int interval_fetch_lat = 0;
+#endif
 
   struct timeval start, end, total_start, total_end;
   gettimeofday(&total_start, NULL);
@@ -470,6 +507,13 @@ int main(int argc, char *argv[]) {
       newInst->completeTick = curTick + int_fetch_lat + int_complete_lat + 1;
       newInst->storeTick = curTick + int_fetch_lat + int_store_lat;
       lastFetchTick = curTick;
+#ifdef DUMP_IPC
+      interval_fetch_lat += int_fetch_lat;
+      if (fetched_inst_num % DUMP_IPC_INTERVAL == 0) {
+        ipc_trace << interval_fetch_lat << "\n";
+        interval_fetch_lat = 0;
+      }
+#endif
       if (int_fetch_lat) {
         nextFetchTick = curTick + int_fetch_lat;
         break;
@@ -508,11 +552,11 @@ int main(int argc, char *argv[]) {
 
   trace.close();
   aux_trace.close();
+#ifdef DUMP_IPC
+  ipc_trace.close();
+#endif
   time_t now = time(0);
   cout << "Finish at " << ctime(&now);
-#ifdef RUN_TRUTH
-  cout << "Truth" << "\n";
-#endif
   cout << inst_num << " instructions finish by " << (curTick - 1) << "\n";
   cout << "Time: " << total_time << "\n";
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
@@ -523,10 +567,14 @@ int main(int argc, char *argv[]) {
   cout << "Store Diff: " << totalStoreDiff << " (" << (double)totalStoreDiff / inst_num << " per inst, Absolute Diff: " << totalAbsStoreDiff << " (" << (double)totalAbsStoreDiff / inst_num << " per inst)\n";
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
   cout << "Trace: " << argv[1] << " " << argv[2] << "\n";
-#ifdef CLASSIFY
+#if defined(RUN_TRUTH)
+  cout << "Truth" << "\n";
+#elif defined(CLASSIFY)
   cout << "Model: " << argv[3] << " " << argv[4] << "\n";
+#elif defined(COMBINED)
+  cout << "Combined Model: " << argv[3] << "\n";
 #else
-  cout << "Model: " << argv[3] << "\n";
+  cout << "Latency Model: " << argv[3] << "\n";
 #endif
   return 0;
 }
