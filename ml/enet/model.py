@@ -181,9 +181,9 @@ class E1DNet(nn.Module):
         out_channels = round_filters(512, self._global_params)  # number of output channels
         #Conv1d = get_same_padding_conv1d(input_size=input_size)
         #self._conv_stem = Conv1d(in_channels, out_channels, kernel_size=2, stride=2, bias=False)
-        #self._conv_stem = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
-        self._conv_stem = Fusion1d(out_channels)
-        input_size -= 1
+        self._conv_stem = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=1, bias=False)
+        #self._conv_stem = Fusion1d(out_channels)
+        #input_size -= 1
         self._bn0 = nn.BatchNorm1d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
 
         # Build blocks
