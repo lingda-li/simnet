@@ -13,11 +13,12 @@
 __pycache__
 data*
 tmp*
+run*
 models
 res
 log
 stats
-sim/build
+sim/build*
 dp/buildROB
 dp/buildQ
 dp/buildML
