@@ -347,6 +347,10 @@ int main(int argc, char *argv[]) {
   bool eof = false;
   struct ROB *rob = new ROB;
   Tick nextFetchTick = 0;
+  long totalFetchDiff = 0;
+  long totalRetireDiff = 0;
+  long totalAbsFetchDiff = 0;
+  long totalAbsRetireDiff = 0;
   Tick Case0 = 0;
   Tick Case1 = 0;
   Tick Case2 = 0;
@@ -439,9 +443,13 @@ int main(int argc, char *argv[]) {
       //std::cout << " " << f_class << " " << fetch_lat << " " << int_fetch_lat << " " << newInst->trueFetchTick << " :";
       //std::cout << " " << c_class << " " << finish_lat << " " << int_finish_lat << " " << newInst->trueCompleteTick << '\n';
 #endif
+      totalFetchDiff += (long)newInst->trueFetchTick - int_fetch_lat;
+      totalRetireDiff += (long)newInst->trueCompleteTick - int_finish_lat;
+      totalAbsFetchDiff += abs((long)newInst->trueFetchTick - int_fetch_lat);
+      totalAbsRetireDiff += abs((long)newInst->trueCompleteTick - int_finish_lat);
 #ifdef DUMP_ML_INPUT
-      int_finish_lat = newInst->trueCompleteTick;
       int_fetch_lat = newInst->trueFetchTick;
+      int_finish_lat = newInst->trueCompleteTick;
 #endif
       newInst->train_data[0] = (-int_fetch_lat - mean[0]) / factor[0];
       newInst->train_data[1] = (-int_fetch_lat - mean[1]) / factor[1];
@@ -490,6 +498,8 @@ int main(int argc, char *argv[]) {
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num << "\n";
   cout << "Measured Time: " << measured_time / inst_num << "\n";
+  cout << "Fetch Diff: " << totalFetchDiff << " (" << (double)totalFetchDiff / inst_num << " per inst), Absolute Diff: " << totalAbsFetchDiff << " (" << (double)totalAbsFetchDiff / inst_num << " per inst)\n";
+  cout << "Retire Diff: " << totalRetireDiff << " (" << (double)totalRetireDiff / inst_num << " per inst, Absolute Diff: " << totalAbsRetireDiff << " (" << (double)totalAbsRetireDiff / inst_num << " per inst)\n";
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << "\n";
   cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
