@@ -90,7 +90,7 @@ def train_mul(args, models, device, train_loader, epoch, rank):
                 epoch, ms.idx, rank, ms.total_lat_loss, end_t - start_t), flush=True)
 
 
-def test_mul(models, device, test_loader, rank):
+def test_mul(args, models, device, test_loader, rank):
     for ms in models:
         ms.model.eval()
         ms.total_lat_loss = 0
@@ -113,11 +113,11 @@ def test_mul(models, device, test_loader, rank):
             ms.total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
             ms.total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
             ms.total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
-            ms.cur_loss = combine_loss(total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3)
+            ms.cur_loss = combine_loss(ms.total_lat_loss, ms.total_cla_loss1, ms.total_cla_loss2, ms.total_cla_loss3)
             print('Test set {} {}: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tCombined Loss: {:.6f}'.format(
                 ms.idx, rank, ms.total_lat_loss, ms.total_cla_loss1, ms.total_cla_loss2, ms.total_cla_loss3, ms.cur_loss), flush=True)
         else:
-            ms.cur_loss = total_lat_loss
+            ms.cur_loss = ms.total_lat_loss
             print('Test set {} {}: Lat Loss: {:.6f}'.format(
                 ms.idx, rank, ms.total_lat_loss), flush=True)
 
@@ -227,7 +227,7 @@ def main_rank(rank, args):
         train_mul(args, models, device, train_loader, epoch, rank)
         if args.distributed:
             test_sampler.set_epoch(epoch - 1)
-        test_mul(models, device, test_loader, rank)
+        test_mul(args, models, device, test_loader, rank)
         for ms in models:
             if args.distributed:
                 cur_loss = torch.tensor(ms.cur_loss).to(device)
@@ -237,9 +237,9 @@ def main_rank(rank, args):
                 if ms.cur_loss < ms.min_loss:
                     print("Find new minimal loss", ms.cur_loss, "to replace", ms.min_loss, "of model", ms.idx)
                     ms.min_loss = ms.cur_loss
-                    if args.save_model:
+                    if not args.no_save_model:
                         save_checkpoint(ms.name, ms.model, ms.optimizer, epoch, ms.min_loss, True)
-                if args.save_model and epoch % args.save_interval == 0:
+                if (not args.no_save_model) and epoch % args.save_interval == 0:
                     save_checkpoint(ms.name, ms.model, ms.optimizer, epoch, ms.min_loss)
         #scheduler.step()
 
@@ -267,6 +267,8 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--save-interval', type=int, default=10, metavar='N',
                         help='how many epochs to save models')
+    parser.add_argument('--no-save-model', action='store_true', default=False,
+                        help='disable model saving')
     parser.add_argument('--distributed', action='store_true', default=False,
                         help='whether to use distributed training')
     parser.add_argument('--nodes', type=int, default=1, metavar='N',
