@@ -1,16 +1,20 @@
+import numpy as np
+
 # Data set configuration.
 data_set_name = "data_spec_postk"
 data_file_name = data_set_name + "/all0.qqu.mmap"
+data_item_format = np.uint16
 total_size = 58946327
 # total batch number is 899.45
 testbatchnum = 898
 validbatchnum = 810
+validbatchsize = 80
 
 ori_batch_size = 1024 * 64
 test_start = testbatchnum * ori_batch_size
 test_end = (testbatchnum + 1) * ori_batch_size
 valid_start = validbatchnum * ori_batch_size
-valid_end = (validbatchnum + 80) * ori_batch_size
+valid_end = (validbatchnum + validbatchsize) * ori_batch_size
 
 context_length = 210
 inst_length = 50

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from cfg import min_complete_lat, min_store_lat
+from cfg import data_item_format, min_complete_lat, min_store_lat
 
 
 class MemoryMappedDataset(Dataset):
@@ -67,9 +67,7 @@ class ComDataset(Dataset):
 class QQDataset(Dataset):
 
     def __init__(self, file_name, rows, columns, start, end, stride=1, batch_size=1, num_classes=10, stat_file_name=None):
-        #self.arr = np.memmap(file_name, dtype=np.float32,
-        #                     mode='r', shape=(rows, columns))
-        self.arr = np.memmap(file_name, dtype=np.uint16,
+        self.arr = np.memmap(file_name, dtype=data_item_format,
                              mode='r', shape=(rows, columns))
         if (end - start) % (batch_size * stride) != 0:
             raise AttributeError("Size is not aligned.")
