@@ -2,7 +2,8 @@ import sys
 import os
 import argparse
 import numpy as np
-from qq_format import *
+#from qq_format import *
+from pk_format import *
 
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)
@@ -30,7 +31,9 @@ nfilled = 0
 file_idx = 0
 bad_lines = 0
 bad_content = 0
-all_feats = np.memmap(output, dtype=np.float32, mode='w+', shape=shp)
+#all_feats = np.memmap(output, dtype=np.float32, mode='w+', shape=shp)
+all_feats = np.memmap(output, dtype=np.uint16, mode='w+', shape=shp)
+tmp_data = np.arange(w, dtype=np.uint16)
 
 if args.stats != "":
     print('Load stats file %s.' % args.stats)
@@ -54,14 +57,18 @@ for i in range(len(args.fname)):
                 vals = [int(s) for s in line.rstrip().split(' ')]
             except:
                 bad_lines += 1
+                print("Bad line", flush=True)
                 continue
             #print(vals)
 
             try:
                 assert len(vals) % inst_length == 0
                 assert len(vals) <= w
-                all_feats[nfilled, 0:len(vals)] = np.array(vals)
-                all_feats[nfilled, len(vals):w] = 0
+                tmp_data[0:len(vals)] = np.array(vals)
+                tmp_data[len(vals):w] = 0
+                all_feats[nfilled] = tmp_data
+                #all_feats[nfilled, 0:len(vals)] = np.array(vals)
+                #all_feats[nfilled, len(vals):w] = 0
                 if args.stats != "":
                     inst_num = int(len(vals) / inst_length)
                     for j in range(inst_num):
@@ -80,7 +87,8 @@ for i in range(len(args.fname)):
                 break
 
             if nfilled % 5000000 == 0:
+                all_feats.flush()
                 print("Have filed %d" % nfilled, flush=True)
 
-del all_feats
+all_feats.flush()
 print("Finished with ", nfilled, "entries, ", nlines, "lines, ", bad_lines, "bad lines", bad_content, "bad contents.")
