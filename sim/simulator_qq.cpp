@@ -26,20 +26,22 @@ using namespace std;
 #define SQSIZE 17
 #define MIN_COMP_LAT 6
 #define MIN_ST_LAT 10
+#define FETCH_BANDWIDTH 3
+#define RETIRE_BANDWIDTH 8
 
 // PostK CPU dataset.
 //#define ROBSIZE 185
 //#define SQSIZE 25
 //#define MIN_COMP_LAT 6
 //#define MIN_ST_LAT 9
+//#define FETCH_BANDWIDTH 8
+//#define RETIRE_BANDWIDTH 4
 
 #define MAXSRCREGNUM 8
 #define MAXDSTREGNUM 6
 #define TD_SIZE 50
 #define CONTEXTSIZE (ROBSIZE + SQSIZE)
 #define TICK_STEP 500.0
-#define FETCH_BANDWIDTH 3
-#define RETIRE_BANDWIDTH 8
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 #define CLASS_NUM 10
 
