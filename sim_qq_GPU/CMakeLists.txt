@@ -8,7 +8,7 @@ find_package(Torch REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(Threads)
 find_package(CUDA REQUIRED)
-find_package(TensorRT REQUIRED)
+#find_package(TensorRT REQUIRED)
 
 IF (OPENMP_FOUND)
     SET(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=${OpenMP_CXX_FLAGS}")

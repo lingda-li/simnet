@@ -30,6 +30,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
   int warpTID = TID % WARPSIZE;
+  int W= threadIdx.x/WARPSIZE;
   int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
   int index, Total;
   ROB *rob;
@@ -47,20 +48,19 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     rob= &rob_d[index];
     sq= &sq_d[index];
     Inst *newInst;
-#ifdef DEBUG
-    if(threadIdx.x==0){ printf("Before memcpy: Head: %d,Tail: %d, len: %d,\n", rob->head,rob->tail, rob->len);}
-#endif
+    Inst __shared__ *temp[4];
     Tick curTick = rob->curTick;
     Tick lastFetchTick = rob->lastFetchTick;
     input_Ptr= inputPtr + ML_SIZE * index;  
     //int old_head= rob->head;
 
-if (warpTID == 0)
-    {  
+if (warpTID == 0){  
+      printf("\n\n");
       if (status[index]==1)
       {
 	      int sq_retired = sq->retire_until(curTick);      
-              int retired = rob->retire_until(curTick); 
+              int retired = rob->retire_until(curTick, sq); 
+	      printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, retired);
 #ifdef DEBUG
               printf("Retire until: %ld, Retired: %d\n",curTick, retired);
 #endif
@@ -70,36 +70,49 @@ if (warpTID == 0)
     if(warpTID==0){
 	     newInst = rob->add();
 	    //printf("Rob pointer before: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
-	    memcpy(newInst, &insts[index], sizeof(Inst));
-    	    //inst_copy(&rob->insts[rob->tail],&insts[index]);  
+	    memcpy(newInst, &insts[index], sizeof(Inst)); 
+	    printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
 #ifdef DEBUG
-	    printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
+	    //printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
 #endif
     }
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
+      //printf("ROB update, %p\n",newInst);
       rob->update_fetch_cycle(curTick - lastFetchTick);
-      sq->update_fetch_cycle(curTick - lastFetchTick);
+      //printf("SQ update\n");
+      sq->update_fetch_cycle(curTick - lastFetchTick);  
     } 
     __syncwarp();
-    int rob_num= rob->make_input_data(input_Ptr, curTick, *newInst);
-     __syncwarp();
-    int sq_num= sq->make_input_data(input_Ptr, curTick, *newInst);
-     __syncwarp();
+    int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
+    __syncwarp();
+    //printf("Rob done\n");
+     if (warpTID == 0)
+    {
+      //printf("Rob: \n");
+      //dis(input_Ptr, TD_SIZE, 4);
+    }
+    int sq_num= sq->make_input_data(input_Ptr + rob_num * TD_SIZE, curTick, insts[index]);
+    __syncwarp();
+    //printf("SQ num\n");
+     if (warpTID == 0)
+    {
+      //printf("SQ; \n");
+      //dis(input_Ptr, TD_SIZE, 4);
+    }
     int num= rob_num + sq_num;
     // copy default values
     if(num < CONTEXTSIZE && warpTID==0)
     {
-	    memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
+       memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
     }   
-
 #ifdef DEBUG
     if (warpTID == 0)
     {
-      printf("Input_Ptr\n");
-      dis(input_Ptr, TD_SIZE, 6);
+      //printf("Input_Ptr\n");
+      //dis(input_Ptr, TD_SIZE, 6);
     }
 #endif
     __syncwarp();
@@ -118,6 +131,24 @@ float *read_numbers(char *fname, int sz)
     in >> ret[i];
   return ret;
 }
+
+
+void display(float *data, int size, int rows)
+{
+  for (int i = 0; i < rows; i++)
+  {
+    for (int j = 0; j < size; j++)
+    {
+      printf("%.2f\t", data[i * size + j]);
+      /*
+      if (data[i * size + j]!=0){
+          printf("%.2f  ", data[i * size + j]);}
+      else{printf("   ");}*/
+    }
+    printf("\n");
+  }
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -177,7 +208,7 @@ trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 int Batch_size = Instructions / Total_Trace;
-cout << " Iterations: " << Batch_size << endl;
+//cout << " Iterations: " << Batch_size << endl;
 //cout<<"Parameters read..\n";
 omp_set_num_threads(1);
 double measured_time = 0.0;
@@ -210,6 +241,7 @@ H_ERR(cudaMalloc((void **)&lastFetchTick, sizeof(Tick) * Total_Trace));
 H_ERR(cudaMalloc((void **)&status, sizeof(int) * Total_Trace));
 cudaMemset(curTick, 0, Total_Trace);
 cudaMemset(lastFetchTick, 0, Total_Trace);
+cudaMemset(status, 1, Total_Trace);
 struct SQ *sq= new SQ[Total_Trace];
 struct ROB *rob= new ROB[Total_Trace];
 struct Inst *inst= new Inst[Total_Trace];
@@ -230,7 +262,8 @@ double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
-  //if((iteration % 50)==0){cout << "Iteration: " << iteration << endl;}
+  //if((iteration % 50)==0)
+  {cout << "\nIteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
@@ -239,19 +272,21 @@ while (iteration < Batch_size){
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("Trace: %d, read\n",i);
-    } 
+    }
+ //printf("Inst read\n"); 
   double check1 = wtime();
   red+= (check1-st);
     H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
     double check2 = wtime();
   tr+= (check2-check1);
+  //cout<<"Data transferred\n";
   preprocess<<<4096, 64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
     H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
   fwrite(inp, sizeof(float), ML_SIZE, pFile);
-  //printf("Input:\n");
+  printf("Input:\n");
   //display(inp, 51,4);
   pre+= (check3-check2);
   check3 = wtime();
@@ -265,7 +300,6 @@ while (iteration < Batch_size){
   inf+= (check4-check3);
   //cout<<"Inference done\n";
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*22, cudaMemcpyHostToDevice));
-
   update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
