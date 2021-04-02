@@ -46,9 +46,9 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
             if i == 0: # Fetch latency.
                 com_output = np.where(cla_res < num_classes - 1, cla_res, lat_output)
             elif i == 1: # Completion latency.
-                com_output = np.where(cla_res < num_classes - 1, cla_res + 6, lat_output)
+                com_output = np.where(cla_res < num_classes - 1, cla_res + min_complete_lat, lat_output)
             else:
-                com_output = np.where(cla_res < num_classes - 1, cla_res + 9, lat_output)
+                com_output = np.where(cla_res < num_classes - 1, cla_res + (min_store_lat - 1), lat_output)
                 com_output = np.where(cla_res == 0, 0, com_output)
             print("combined output:", com_output)
             errs = cur_lat_target - com_output
@@ -88,16 +88,20 @@ def test(args, model, device, test_loader):
             data, lat_target, cla_target = data.to(device), lat_target.to(device), cla_target.to(device)
             output = model(data)
             total_lat_loss += lat_loss_fn(output[:,0:3], lat_target).item()
-            total_cla_loss1 += cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0]).item()
-            total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
-            total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
+            if not args.no_class:
+                total_cla_loss1 += cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0]).item()
+                total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
+                total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
             analyze(args, output, lat_target, cla_target, data)
     total_lat_loss /= len(test_loader) * test_loader.batch_size / 65536
-    total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
-    total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
-    total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
-    print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
-        total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
+    if args.no_class:
+        print('Test set: Lat Loss: {:.6f}'.format(total_lat_loss), flush=True)
+    else:
+        total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
+        total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
+        total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
+        print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
+            total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
 
 
 def load_checkpoint(name, model, training=False, optimizer=None):
