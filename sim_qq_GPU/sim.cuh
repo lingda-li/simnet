@@ -110,13 +110,13 @@ struct Inst
 };
 
 struct SQ {
-  Inst insts[SQSIZE];
+  Inst insts[SQSIZE+1];
   int size= SQSIZE;
   int head = 0;
   int len = 0;
   int tail = 0;
   __device__ int inc(int input) {
-    if (input == SQSIZE-1)
+    if (input == SQSIZE)
       return 0;
     else
       return input + 1;
@@ -124,7 +124,7 @@ struct SQ {
 
   __device__ int dec(int input) {
     if (input == 0)
-      return SQSIZE-1;
+      return SQSIZE;
     else
       return input - 1;
   }
@@ -133,6 +133,7 @@ struct SQ {
   __device__ bool is_full() { return head == inc(tail); }
   __device__ Inst *add() {
     assert(!is_full());
+    len+=1;
     int old_tail = tail;
     tail = inc(tail);
     return &insts[old_tail];
@@ -145,6 +146,7 @@ struct SQ {
   __device__ void retire() {
     assert(!is_empty());
     head = inc(head); 
+    len-=1;
   }
 
   __device__ int retire_until(Tick tick)
@@ -160,7 +162,7 @@ struct SQ {
            retire();
       retired++;
     }
-    //printf("SQ size:%d, head: %d, tail:%d\n", SQSIZE,head,tail);
+    printf("SQ size:%d, head: %d, tail:%d\n", SQSIZE,head,tail);
     assert(head <= SQSIZE);
     assert(tail <= SQSIZE);
     //printf("after: %d, retired: %d\n", head, retired);
@@ -184,15 +186,15 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
       iwalkAddr[i] = new_inst.iwalkAddr[i];
       dwalkAddr[i] = new_inst.dwalkAddr[i];
     }
-     int W= threadIdx.x/WARPSIZE;
-    int length= len - 1;   
-    int i;
-     i = warpTID;
-     int start_context = (dec(tail));
+    int W= threadIdx.x/WARPSIZE;
+    int length= len;   
+    int i= warpTID;
+    int start_context = (dec(tail));
     int end_context = dec(head);
     while(i < length) {
       int context = start_context - i;
-      context = (context >= 0) ? context : context + SQSIZE;
+      context = (context >= 0) ? context : context + SQSIZE+1;
+      printf("SQ: input context: %d\n",context);
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 : 0.0;
       int conflict = 0;
       for (int j = 0; j < 3; j++) {
@@ -219,19 +221,21 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
 
   __device__ void update_fetch_cycle(Tick tick) {
     int warpTID = threadIdx.x % WARPSIZE;
-    int i;
-    int length= len - 1;
+    int length= len ;
     int context;
     int start_context = (dec(tail));
     int end_context = dec(head);
-
+    int i=warpTID;
+    if(warpTID==0){printf("len: %d\n",length);}
     //for (; i != dec(head); i = dec(i)) {
     while(i < length){
       context = start_context - i;
-      context = (context >= 0) ? context : context + SQSIZE;
-      printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
+      context = (context >= 0) ? context : context + SQSIZE+1;
+      //printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       insts[context].train_data[0] += tick;
+       printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       assert(insts[context].train_data[0] >= 0.0);
+      i+=WARPSIZE;
     }
   }
 };
@@ -239,7 +243,7 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
 
 struct ROB
 {
-  Inst insts[ROBSIZE];
+  Inst insts[ROBSIZE+1];
   int size= ROBSIZE;
   int head = 0;
   int tail = 0;
@@ -248,7 +252,7 @@ struct ROB
   Tick lastFetchTick=0;
   __host__ __device__ int inc(int input)
   {
-    if (input == (ROBSIZE-1)){
+    if (input == (ROBSIZE)){
       return 0;}
     else{ 
       return input + 1;}
@@ -258,7 +262,7 @@ struct ROB
   __host__ __device__ int dec(int input)
   {
     if (input == 0){
-     	    return (ROBSIZE-1);}
+     	    return (ROBSIZE);}
     else{
             return input - 1;}
   }
@@ -301,7 +305,7 @@ struct ROB
 
 __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
 	   int retired=0;
-	   //printf("SQ: Retire until: %d, before: %d \t", tick, head);
+	   //printf("ROB: head: %d, tail: %d \n", head, tail);
          while (!is_empty() && insts[head].completeTick <= tick &&
              retired < RETIRE_BANDWIDTH) {
         if (insts[head].isStore()) {
@@ -328,18 +332,20 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     int context;
     int start_context = dec(dec(tail));
     int end_context = dec(head);
-    int length = len - 1;
+    int length = len-1;
     int i = warpTID;
     while (i < length) {
       context= start_context - i;
-      context= (context >= 0) ? context : context + ROBSIZE;
-      //printf(" Context: %d, %.2f\n", context, insts[context].train_data[0]);
+      context= (context >= 0) ? context : context + ROBSIZE + 1;
+      //printf("I:%d,  Context: %d, previous: %.2f\n",i, context, insts[context].train_data[0]);
       //printf("Context: %d, Before, %.3f, %.3f, Next: %d\n", context, inst[0], inst[1], dec(i - 32));
       insts[context].train_data[0] += tick;
       printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       assert(insts[context].train_data[0] >= 0.0);
       i += WARPSIZE;
     }
+    __syncwarp();
+    //if(warpTID==0){printf("ROB: head: %d, tail: %d \n", head, tail);}
     __syncwarp();
   }
 
@@ -352,9 +358,9 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     int start_context = dec(dec(tail));
     int end_context = dec(head);
     int W= threadIdx.x/WARPSIZE;
-//#ifdef DEBUG
+#ifdef DEBUG
     if(warpTID==0){printf("Here. Head: %d, Tail: %d, dec(tail): %d, len: %d\n",head,tail,dec(tail),len-1);}
-//#endif
+#endif
     __syncwarp();
     assert(!is_empty());
     //assert(&new_inst == &insts[dec(tail)]);
@@ -380,7 +386,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
    while (i < length)
     {
       int context = start_context - i;
-      context = (context >= 0) ? context : context + ROBSIZE;
+      context = (context >= 0) ? context : context + ROBSIZE + 1;
       //printf("Context: %d\n",context);
       // Update context instruction bits.
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 : 0.0;

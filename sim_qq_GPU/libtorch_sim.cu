@@ -30,7 +30,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
   int warpTID = TID % WARPSIZE;
-  int W= threadIdx.x/WARPSIZE;
+  //int W= threadIdx.x/WARPSIZE;
   int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
   int index, Total;
   ROB *rob;
@@ -48,14 +48,14 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     rob= &rob_d[index];
     sq= &sq_d[index];
     Inst *newInst;
-    Inst __shared__ *temp[4];
+    //Inst __shared__ *temp[4];
     Tick curTick = rob->curTick;
     Tick lastFetchTick = rob->lastFetchTick;
     input_Ptr= inputPtr + ML_SIZE * index;  
     //int old_head= rob->head;
 
 if (warpTID == 0){  
-      printf("\n\n");
+      //printf("\n\n");
       if (status[index]==1)
       {
 	      int sq_retired = sq->retire_until(curTick);      
@@ -71,7 +71,7 @@ if (warpTID == 0){
 	     newInst = rob->add();
 	    //printf("Rob pointer before: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
 	    memcpy(newInst, &insts[index], sizeof(Inst)); 
-	    printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
+	    //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
 #ifdef DEBUG
 	    //printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
 #endif
@@ -80,28 +80,22 @@ if (warpTID == 0){
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      //printf("ROB update, %p\n",newInst);
+     if(warpTID==0){printf("ROB update\n");}
+     __syncwarp();
       rob->update_fetch_cycle(curTick - lastFetchTick);
-      //printf("SQ update\n");
+      __syncwarp();
+     if(warpTID==0){printf("SQ update\n");}
+     __syncwarp();
       sq->update_fetch_cycle(curTick - lastFetchTick);  
+      __syncwarp();
     } 
     __syncwarp();
+    if(warpTID==0){printf("ROB: head: %d, tail: %d \n", rob->head, rob->tail);}
+     __syncwarp();
     int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
     __syncwarp();
-    //printf("Rob done\n");
-     if (warpTID == 0)
-    {
-      //printf("Rob: \n");
-      //dis(input_Ptr, TD_SIZE, 4);
-    }
     int sq_num= sq->make_input_data(input_Ptr + rob_num * TD_SIZE, curTick, insts[index]);
     __syncwarp();
-    //printf("SQ num\n");
-     if (warpTID == 0)
-    {
-      //printf("SQ; \n");
-      //dis(input_Ptr, TD_SIZE, 4);
-    }
     int num= rob_num + sq_num;
     // copy default values
     if(num < CONTEXTSIZE && warpTID==0)
@@ -262,7 +256,7 @@ double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
-  //if((iteration % 50)==0)
+  //if((iteration % 500)==0)
   {cout << "\nIteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
@@ -286,7 +280,7 @@ while (iteration < Batch_size){
   double check3= wtime();
     H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
   fwrite(inp, sizeof(float), ML_SIZE, pFile);
-  printf("Input:\n");
+  //printf("Input:\n");
   //display(inp, 51,4);
   pre+= (check3-check2);
   check3 = wtime();
