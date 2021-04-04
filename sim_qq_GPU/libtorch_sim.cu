@@ -61,20 +61,11 @@ if (warpTID == 0){
 	      int sq_retired = sq->retire_until(curTick);      
               int retired = rob->retire_until(curTick, sq); 
 	      printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, retired);
-#ifdef DEBUG
               printf("Retire until: %ld, Retired: %d\n",curTick, retired);
-#endif
       }
-    }
-	__syncwarp();
-    if(warpTID==0){
-	     newInst = rob->add();
-	    //printf("Rob pointer before: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
-	    memcpy(newInst, &insts[index], sizeof(Inst)); 
-	    //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
-#ifdef DEBUG
-	    //printf("Rob pointer after: %p, new Inst: %p, head: %d\n",rob,newInst,rob->dec(rob->tail));
-#endif
+	 newInst = rob->add();
+	 memcpy(newInst, &insts[index], sizeof(Inst)); 
+	 printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     }
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
@@ -91,6 +82,7 @@ if (warpTID == 0){
     } 
     __syncwarp();
     if(warpTID==0){printf("ROB: head: %d, tail: %d \n", rob->head, rob->tail);}
+     if(warpTID==0){printf("SQ: head: %d, tail: %d \n", sq->head, sq->tail);}
      __syncwarp();
     int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
     __syncwarp();
@@ -183,7 +175,8 @@ torch::jit::script::Module lat_module;
     cerr << "error loading the model\n";
     return 0;
   }
-
+//lat_module.save("libtorch.pt");
+//return 0;
 //cout<<endl;
 int Total_Trace = atoi(argv[4]);
 int Instructions = atoi(argv[5]);
@@ -194,7 +187,7 @@ float *inp= input.data_ptr<float>();
 //cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 float *inputPtr, *output;
 H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * ML_SIZE * Total_Trace));
-H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 22));
+H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 33));
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *trace;
 Tick *aux_trace;
@@ -292,9 +285,11 @@ while (iteration < Batch_size){
   //cout<<outputs<<endl;
   double check4= wtime();
   inf+= (check4-check3);
+  cout<<"Output size: "<< outputs.sizes()[0]<<endl;
   //cout<<"Inference done\n";
-  H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*22, cudaMemcpyHostToDevice));
-  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace);
+  int out_shape= outputs.sizes()[1];
+  H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*33, cudaMemcpyHostToDevice));
+  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
   double check5=wtime();

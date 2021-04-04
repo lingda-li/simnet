@@ -31,7 +31,7 @@
 #define TRACE_DIM 50
 #define AUX_TRACE_DIM 10
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
-//#define COMBINED
+#define COMBINED
 //#define DEBUG
 
 
@@ -532,7 +532,7 @@ __device__ Tick min_(Tick a, Tick b)
 
 
 __global__ void
-update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
+update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int index = TID;
@@ -540,31 +540,41 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
   while (index < Total_Trace)
   {
 #if defined(COMBINED)
-    int offset= index * 22;
+    int offset= index * shape;
 #else
-    int offset = index * LAT_NUM;
-#endif   
+    int offset = index * shape;
+#endif  
+#ifdef DEBUG 
+    if (threadIdx.x == 0)
+	        {
+	printf("Input_Ptr\n");
+	dis(output, 33, 1);
+			    }
+    __syncwarp();
+#endif
     Tick nextFetchTick = 0;
     rob= &rob_d[index];
     sq= &sq_d[index];    
     int tail= rob->dec(rob->tail);
     int tail_sq= sq->dec(sq->tail);
-        int context_offset = rob->dec(rob->tail) * TD_SIZE;
+    int context_offset = rob->dec(rob->tail) * TD_SIZE;
     #if defined(COMBINED)
-    int classes[LAT_NUM];
-    for(int i=0; i<LAT_NUM;i++)
+    int classes[3];
+    for(int i=0; i<3;i++)
     {
-	     float max = output[offset + CLASS_NUM*i+LAT_NUM];
+	     float max = output[offset + CLASS_NUM*i+3];
+	   
 	     int idx=0;
-	     //printf("i: %d, max: %d\n", i ,max);
-	     for (int j = 1; j < 10; j++) {
-		     //printf("i: %d, max: %f, value: %f\n", i ,max,output[offset + 10*i+2+j]);
-		     if (max < output[offset + CLASS_NUM*i+LAT_NUM+j]) {
-            max = output[offset + CLASS_NUM*i+LAT_NUM+j];
-            idx = j;
+	     //printf("i: %d, max: %.2f\n", i ,max);
+	     for (int j = 1; j < CLASS_NUM; j++) {
+		     //printf("i: %d, max: %.2f, value: %.2f\n", i ,max,output[offset + 10*i+3+j]);
+	       if (max < output[offset + CLASS_NUM*i+3+j]) {
+                 max = output[offset + CLASS_NUM*i+3+j];
+                 idx = j;
           }
 	   classes[i]= idx;   
 	     }
+	 //printf("combined: class0: %d, class1: %d, class2: %d\n", classes[0],classes[1],classes[2]);
     }
     //printf("fclass: %d, cclass: %d\n", f_class, c_class);
 #endif
@@ -574,19 +584,21 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
     int int_fetch_lat = round(fetch_lat);
     int int_complete_lat = round(complete_lat);
     int int_store_lat = round(store_lat);
-     printf("rob tail: %d, sq tail: %d, %.3f, %.3f, %.3f\n", rob->tail, sq->tail, fetch_lat, complete_lat, store_lat);    
+     //printf("rob tail: %d, sq tail: %d,\n %.3f, %.3f, %.3f\n", rob->tail, sq->tail, fetch_lat, complete_lat, store_lat);    
     #ifdef DEBUG
     printf("%.3f, %.3f, %.3f\n",fetch_lat, complete_lat, store_lat);
     #endif 
 #if defined(COMBINED)
-      if (classes[0] <= 8)
-        int_fetch_lat = classes[0];
-      if (classes[1] <= 8)
-        int_complete_lat = classes[1] + MIN_COMP_LAT;
-      if (classes[2] == 0)
-        int_store_lat = 0;
-      else if (classes[2] <= 8 )
-        int_store_lat = classes[2] + MIN_ST_LAT - 1;
+      if (classes[0] <= 8){
+        int_fetch_lat = classes[0];}
+      if (classes[1] <= 8){
+	printf("complete\n");
+        int_complete_lat = classes[1] + MIN_COMP_LAT;}
+      if (classes[2] == 0){
+        int_store_lat = 0;}
+      else if (classes[2] <= 8 ){
+        int_store_lat = classes[2] + MIN_ST_LAT - 1;}
+      //printf("Combined: fetch: %d, complete: %d, store: %d\n",int_fetch_lat, int_complete_lat,int_store_lat);
 #endif
 
       // Calibrate latency.
@@ -614,14 +626,15 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
     rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
     rob->insts[tail].completeTick = rob->curTick + int_fetch_lat + int_complete_lat + 1;
     rob->lastFetchTick = rob->curTick;
-     printf("%lu, %lu, %lu\n", rob->insts[tail].completeTick, rob->insts[tail].storeTick, rob->lastFetchTick);
+    //printf("%lu, %lu, %lu\n", rob->insts[tail].completeTick, rob->insts[tail].storeTick, rob->lastFetchTick);
     if (int_fetch_lat)
     {
       status[index]=1;
       nextFetchTick = rob->curTick + int_fetch_lat;
         printf("Break with int fetch, set status : %d\n",status[index]);
     }
-    else{status[index]=0; index += (gridDim.x * blockDim.x);continue;}
+    else if(rob->is_full()){printf("RoB full\n");}
+    else{printf("continue loop without update\n");status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     int count=0, temp=0;
     do{
             if(count>0){
@@ -629,10 +642,12 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
               //printf("retiring..\n SQ %p: head: %d, tail: %d\n",sq,sq->head,sq->tail);
 	      int sq_retired = sq->retire_until(temp);
 	      int rob_retired = rob->retire_until(rob->curTick,sq);
+	      int_fetch_lat=0;
       	      //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
       }
-    printf("head: %d, curTick: %lu \n", rob->head, rob->curTick);
-    if ( int_fetch_lat)
+    //printf("head: %d, curTick: %lu \n", rob->head, rob->curTick);
+    printf("Rob full: %d\n", rob->is_full());
+	    if ( int_fetch_lat)
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
@@ -657,7 +672,12 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace)
     printf("nextFetch: %lu\n", nextFetchTick);
     temp= rob->curTick;
     count++;
-    } while (!(rob->curTick >=nextFetchTick));
+    //int sq_retired = sq->retire_until(temp);
+    //int rob_retired = rob->retire_until(rob->curTick,sq);
+    int_fetch_lat=0;
+              //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
+    printf("Rob full?: %d, curtick and next: %d\n",rob->is_full(),rob->curTick>=nextFetchTick);
+    } while (!(rob->curTick >=nextFetchTick) || rob->is_full());
     index += (gridDim.x * blockDim.x);
   }
 }
