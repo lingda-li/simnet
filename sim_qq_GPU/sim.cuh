@@ -86,14 +86,13 @@ struct Inst
     pc = aux_trace[0];
     //std::cout<< "storeTick: "<< trueStoreTick << std::endl;
     //cout<< "Before: "<< pc << ", After: "<< getLine(pc) << endl;
-    pc= getLine(pc);
-    offset = TD_SIZE * index; 
+    pc= getLine(pc); 
     assert(trueCompleteTick >= MIN_COMP_LAT || trueCompleteTick == 0);
     assert(trueStoreTick == 0 || trueStoreTick >= MIN_ST_LAT);
+    //printf("loop start:train %.2f\n",trace[offset]);
     for (int i = 3; i < TD_SIZE; i++)
     {
-      train_data[i] = trace[i+offset];
-      //std::cout<< trace[i+offset]<<"  ";
+      train_data[i] = trace[i];
     }
     //std::cout << std::endl;
     train_data[0] = train_data[1] = 0.0;
@@ -162,7 +161,7 @@ struct SQ {
            retire();
       retired++;
     }
-    printf("SQ size:%d, head: %d, tail:%d\n", SQSIZE,head,tail);
+    //printf("SQ size:%d, head: %d, tail:%d\n", SQSIZE,head,tail);
     assert(head <= SQSIZE);
     assert(tail <= SQSIZE);
     //printf("after: %d, retired: %d\n", head, retired);
@@ -194,7 +193,7 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
     while(i < length) {
       int context = start_context - i;
       context = (context >= 0) ? context : context + SQSIZE+1;
-      printf("SQ: input context: %d\n",context);
+      //printf("SQ: input context: %d\n",context);
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 : 0.0;
       int conflict = 0;
       for (int j = 0; j < 3; j++) {
@@ -226,14 +225,14 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
     int start_context = (dec(tail));
     int end_context = dec(head);
     int i=warpTID;
-    if(warpTID==0){printf("len: %d\n",length);}
+    //if(warpTID==0){printf("len: %d\n",length);}
     //for (; i != dec(head); i = dec(i)) {
     while(i < length){
       context = start_context - i;
       context = (context >= 0) ? context : context + SQSIZE+1;
       //printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       insts[context].train_data[0] += tick;
-       printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
+       //printf("SQ: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       assert(insts[context].train_data[0] >= 0.0);
       i+=WARPSIZE;
     }
@@ -305,20 +304,18 @@ struct ROB
 
 __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
 	   int retired=0;
-	   //printf("ROB: head: %d, tail: %d \n", head, tail);
-         while (!is_empty() && insts[head].completeTick <= tick &&
+	            while (!is_empty() && insts[head].completeTick <= tick &&
              retired < RETIRE_BANDWIDTH) {
-        if (insts[head].isStore()) {
-          if (sq->is_full())
-            break;
+		         if (insts[head].isStore()) {
+		          if (sq->is_full()){
+            		  break;}
           Inst *newInst = sq->add();
-          newInst->init(insts[head]);
+	            newInst->init(insts[head]);
         }
-        retire();
+	        retire();
         retired++;
       }
-	 //printf("After: %d, retired: %d\n",head,retired);
-      return retired;
+	       return retired;
    }
 
 
@@ -340,7 +337,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
       //printf("I:%d,  Context: %d, previous: %.2f\n",i, context, insts[context].train_data[0]);
       //printf("Context: %d, Before, %.3f, %.3f, Next: %d\n", context, inst[0], inst[1], dec(i - 32));
       insts[context].train_data[0] += tick;
-      printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
+      //printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       assert(insts[context].train_data[0] >= 0.0);
       i += WARPSIZE;
     }
@@ -592,7 +589,7 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
       if (classes[0] <= 8){
         int_fetch_lat = classes[0];}
       if (classes[1] <= 8){
-	printf("complete\n");
+	//printf("complete\n");
         int_complete_lat = classes[1] + MIN_COMP_LAT;}
       if (classes[2] == 0){
         int_store_lat = 0;}
@@ -616,11 +613,8 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[1] = int_complete_lat;
     rob->insts[tail].train_data[2] = int_store_lat;
     
-    printf(" %d, %d, %d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
-    //sq->insts[tail].train_data[0] = -int_fetch_lat;
-    //sq->insts[tail].train_data[1] = int_complete_lat;
-    //sq->insts[tail].train_data[2] = int_store_lat;
-    #ifdef DEBUG
+    //printf(" %d, %d, %d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
+        #ifdef DEBUG
     //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
 #endif
     rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
@@ -631,10 +625,14 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     {
       status[index]=1;
       nextFetchTick = rob->curTick + int_fetch_lat;
-        printf("Break with int fetch, set status : %d\n",status[index]);
+        //printf("Break with int fetch, set status : %d\n",status[index]);
     }
-    else if(rob->is_full()){printf("RoB full\n");}
-    else{printf("continue loop without update\n");status[index]=0; index += (gridDim.x * blockDim.x);continue;}
+    else if(rob->is_full()){
+	    //printf("RoB full\n");
+    }
+    else{
+	    //printf("continue loop without update\n");
+	    status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     int count=0, temp=0;
     do{
             if(count>0){
@@ -646,37 +644,37 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
       	      //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
       }
     //printf("head: %d, curTick: %lu \n", rob->head, rob->curTick);
-    printf("Rob full: %d\n", rob->is_full());
+    //printf("Rob full: %d\n", rob->is_full());
 	    if ( int_fetch_lat)
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
-      printf("case 1 cur = %lu\n",rob->curTick);
+      //printf("case 1 cur = %lu\n",rob->curTick);
     }
     else if (rob->curTick < nextFetchTick)
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
-       printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
+       //printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
     }
     else if (rob->is_full())
     {
       rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
-      printf("case 3 cur = %lu\n",rob->curTick);
+      //printf("case 3 cur = %lu\n",rob->curTick);
     }
     else{
 	rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
-	printf("case 4 cur = %lu\n",rob->curTick);
+	//printf("case 4 cur = %lu\n",rob->curTick);
     }
     int_fetch_lat= 0;
-    printf("nextFetch: %lu\n", nextFetchTick);
+    //printf("nextFetch: %lu\n", nextFetchTick);
     temp= rob->curTick;
     count++;
     //int sq_retired = sq->retire_until(temp);
     //int rob_retired = rob->retire_until(rob->curTick,sq);
     int_fetch_lat=0;
               //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
-    printf("Rob full?: %d, curtick and next: %d\n",rob->is_full(),rob->curTick>=nextFetchTick);
+    //printf("Rob full?: %d, curtick and next: %d\n",rob->is_full(),rob->curTick>=nextFetchTick);
     } while (!(rob->curTick >=nextFetchTick) || rob->is_full());
     index += (gridDim.x * blockDim.x);
   }
