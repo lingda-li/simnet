@@ -90,11 +90,13 @@ struct Inst
     assert(trueCompleteTick >= MIN_COMP_LAT || trueCompleteTick == 0);
     assert(trueStoreTick == 0 || trueStoreTick >= MIN_ST_LAT);
     //printf("loop start:train %.2f\n",trace[offset]);
+    int offset= index * TD_SIZE;
     for (int i = 3; i < TD_SIZE; i++)
     {
-      train_data[i] = trace[i];
+      train_data[i] = trace[i+offset];
+      printf("%.0f ",train_data[i]);
     }
-    //std::cout << std::endl;
+    std::cout << std::endl;
     train_data[0] = train_data[1] = 0.0;
     train_data[2] = 0; 
     isAddr = aux_trace[1];
@@ -337,7 +339,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
       //printf("I:%d,  Context: %d, previous: %.2f\n",i, context, insts[context].train_data[0]);
       //printf("Context: %d, Before, %.3f, %.3f, Next: %d\n", context, inst[0], inst[1], dec(i - 32));
       insts[context].train_data[0] += tick;
-      //printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
+      printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
       assert(insts[context].train_data[0] >= 0.0);
       i += WARPSIZE;
     }
@@ -581,7 +583,7 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     int int_fetch_lat = round(fetch_lat);
     int int_complete_lat = round(complete_lat);
     int int_store_lat = round(store_lat);
-     //printf("rob tail: %d, sq tail: %d,\n %.3f, %.3f, %.3f\n", rob->tail, sq->tail, fetch_lat, complete_lat, store_lat);    
+     printf("rob tail: %d, sq tail: %d,\n %.3f, %.3f, %.3f\n", rob->tail, sq->tail, fetch_lat, complete_lat, store_lat);    
     #ifdef DEBUG
     printf("%.3f, %.3f, %.3f\n",fetch_lat, complete_lat, store_lat);
     #endif 
@@ -595,7 +597,7 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
         int_store_lat = 0;}
       else if (classes[2] <= 8 ){
         int_store_lat = classes[2] + MIN_ST_LAT - 1;}
-      //printf("Combined: fetch: %d, complete: %d, store: %d\n",int_fetch_lat, int_complete_lat,int_store_lat);
+      printf("Combined: fetch: %d, complete: %d, store: %d\n",int_fetch_lat, int_complete_lat,int_store_lat);
 #endif
 
       // Calibrate latency.
@@ -625,22 +627,23 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     {
       status[index]=1;
       nextFetchTick = rob->curTick + int_fetch_lat;
-        //printf("Break with int fetch, set status : %d\n",status[index]);
+        printf("Break with int fetch, set status : %d\n",status[index]);
     }
     else if(rob->is_full()){
-	    //printf("RoB full\n");
+	    printf("RoB full\n");
+	    status[index]=1;
     }
     else{
-	    //printf("continue loop without update\n");
+	    printf("continue loop without update\n");
 	    status[index]=0; index += (gridDim.x * blockDim.x);continue;}
     int count=0, temp=0;
     do{
             if(count>0){
 	      //assert((sq->head) 
               //printf("retiring..\n SQ %p: head: %d, tail: %d\n",sq,sq->head,sq->tail);
-	      int sq_retired = sq->retire_until(temp);
-	      int rob_retired = rob->retire_until(rob->curTick,sq);
-	      int_fetch_lat=0;
+	      //int sq_retired = sq->retire_until(temp);
+	      //int rob_retired = rob->retire_until(rob->curTick,sq);
+	      //int_fetch_lat=0;
       	      //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
       }
     //printf("head: %d, curTick: %lu \n", rob->head, rob->curTick);
@@ -649,32 +652,36 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
-      //printf("case 1 cur = %lu\n",rob->curTick);
+      printf("case 1 cur = %lu\n",rob->curTick);
     }
     else if (rob->curTick < nextFetchTick)
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
-       //printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
+       printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
     }
     else if (rob->is_full())
     {
       rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
-      //printf("case 3 cur = %lu\n",rob->curTick);
+      printf("case 3 cur = %lu\n",rob->curTick);
     }
     else{
 	rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
-	//printf("case 4 cur = %lu\n",rob->curTick);
+	printf("case 4 cur = %lu\n",rob->curTick);
     }
     int_fetch_lat= 0;
     //printf("nextFetch: %lu\n", nextFetchTick);
     temp= rob->curTick;
     count++;
-    //int sq_retired = sq->retire_until(temp);
-    //int rob_retired = rob->retire_until(rob->curTick,sq);
-    int_fetch_lat=0;
+    if(status[index]==1){
+    	int sq_retired = sq->retire_until(rob->curTick);
+    	int rob_retired = rob->retire_until(rob->curTick,sq);
+	printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, rob_retired);
+        //printf("Retire until: %ld, Retired: %d\n",curTick, retired);
+    	int_fetch_lat=0;}
               //printf("SQ: %p, retired: %d, rob retired: %d\n",sq,sq_retired, rob_retired);
-    //printf("Rob full?: %d, curtick and next: %d\n",rob->is_full(),rob->curTick>=nextFetchTick);
+    printf("Rob full?: %d, curtick and next: %d\n",rob->is_full(),rob->curTick>=nextFetchTick);
+    
     } while (!(rob->curTick >=nextFetchTick) || rob->is_full());
     index += (gridDim.x * blockDim.x);
   }
@@ -688,9 +695,14 @@ int read_trace_mem(char trace_file[], char aux_trace_file[], float *trace, Tick 
     printf("Unable to read trace binary.");
     return 1;
   }
-
-  unsigned long int tot= TRACE_DIM * instructions;
-  Tick r = fread(trace, sizeof(float), TRACE_DIM * instructions, trace_f);
+  int instr= instructions/10;
+  Tick r=0;
+  //for (int i=0; i<10;i++){
+  unsigned long int tot= TRACE_DIM * instr;
+  r = fread(trace, sizeof(float), TRACE_DIM * instructions, trace_f);
+  //trace+=r;
+  //assert(r=tot);
+  //}
   printf("tot: %lu, Toread: %lu, read :%lu values for trace.\n",tot,TRACE_DIM * instructions, r);
   //display(trace,TRACE_DIM,2);
 

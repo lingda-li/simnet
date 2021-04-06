@@ -58,10 +58,10 @@ if (warpTID == 0){
       //printf("\n\n");
       if (status[index]==1)
       {
-	      int sq_retired = sq->retire_until(curTick);      
-              int retired = rob->retire_until(curTick, sq); 
-	      printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, retired);
-              printf("Retire until: %ld, Retired: %d\n",curTick, retired);
+	      //int sq_retired = sq->retire_until(curTick);      
+              //int retired = rob->retire_until(curTick, sq); 
+	      //printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, retired);
+              //printf("Retire until: %ld, Retired: %d\n",curTick, retired);
       }
 	 newInst = rob->add();
 	 memcpy(newInst, &insts[index], sizeof(Inst)); 
