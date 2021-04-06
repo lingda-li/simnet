@@ -124,9 +124,8 @@ for i in range(epoch_num):
     print("test value:",test_values[-1])
 
 
-print(test_values)
-if saved_model_name != "":
-    if torch.cuda.device_count() > 1:
+    print(test_values)
+    if saved_model_name != "":if torch.cuda.device_count() > 1:
         torch.save(simnet.module, 'models/' + saved_model_name)
     else:
         torch.save(simnet, 'models/' + saved_model_name)
