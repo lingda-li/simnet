@@ -76,6 +76,26 @@ class FC2(nn.Module):
         x = self.fc2(x)
         return x
 
+class CNN_F(nn.Module):
+    def __init__(self, out, ck1, ch1, cs1, cp1, f1):
+        super(CNN_F, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=inst_length, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self.f1_input = math.floor((context_length + 2 * cp1 - ck1) / cs1 + 1)
+        print(self.f1_input)
+        self.f1_input *= ch1
+        self.f1_input = int(self.f1_input)
+        self.fc1 = nn.Linear(self.f1_input, f1)
+        self.fc2 = nn.Linear(f1, out)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        x = F.relu(self.conv1(x))
+        x = x.view(-1, self.f1_input)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
 class CNN3(nn.Module):
     def __init__(self, out, ck1, ch1, ck2, ch2, ck3, ch3, f1):
         super(CNN3, self).__init__()
