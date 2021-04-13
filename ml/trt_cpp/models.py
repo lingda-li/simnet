@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from cfg import context_length, inst_length
+from cfg_qq import context_length, inst_length
 #from enet import E1DNet
 
 class Fusion1dFC(nn.Module):
@@ -443,6 +443,51 @@ class CNN7_F(nn.Module):
         x = self.fc2(x)
         return x
 
+class CNN7_BN(nn.Module):
+    def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, ck4, ch4, cs4, cp4, ck5, ch5, cs5, cp5, ck6, ch6, cs6, cp6, ck7, ch7, cs7, cp7, f1):
+        super(CNN7_BN, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=inst_length, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self._bn_fu = nn.BatchNorm1d(num_features=ch1)
+        self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
+        self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
+        self.conv4 = nn.Conv1d(in_channels=ch3, out_channels=ch4, kernel_size=ck4, stride=cs4, padding=cp4)
+        self.conv5 = nn.Conv1d(in_channels=ch4, out_channels=ch5, kernel_size=ck5, stride=cs5, padding=cp5)
+        self.conv6 = nn.Conv1d(in_channels=ch5, out_channels=ch6, kernel_size=ck6, stride=cs6, padding=cp6)
+        self.conv7 = nn.Conv1d(in_channels=ch6, out_channels=ch7, kernel_size=ck7, stride=cs7, padding=cp7)
+        self.f1_input = math.floor((context_length + 2 * cp1 - ck1) / cs1 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp2 - ck2) / cs2 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp3 - ck3) / cs3 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp4 - ck4) / cs4 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp5 - ck5) / cs5 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp6 - ck6) / cs6 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp7 - ck7) / cs7 + 1)
+        print(self.f1_input)
+        self.f1_input *= ch7
+        self.f1_input = int(self.f1_input)
+        self.fc1 = nn.Linear(self.f1_input, f1)
+        self.fc2 = nn.Linear(f1, out)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        x = F.relu(self._bn_fu(self.conv1(x)))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = F.relu(self.conv5(x))
+        x = F.relu(self.conv6(x))
+        x = F.relu(self.conv7(x))
+        x = x.view(-1, self.f1_input)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
 class CNN7_F_P(nn.Module):
     def __init__(self, out, pc, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, ck4, ch4, cs4, cp4, ck5, ch5, cs5, cp5, ck6, ch6, cs6, cp6, ck7, ch7, cs7, cp7, f1):
         super(CNN7_F_P, self).__init__()
@@ -733,6 +778,54 @@ class FC2_P(nn.Module):
             xo = self.convp(xi)
             y = torch.cat((y, xo), 2)
         x = F.relu(y)
+        x = x.view(-1, self.f1_input)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+class CNN8_F(nn.Module):
+    def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, ck4, ch4, cs4, cp4, ck5, ch5, cs5, cp5, ck6, ch6, cs6, cp6, ck7, ch7, cs7, cp7, ck8, ch8, cs8, cp8, f1):
+        super(CNN8_F, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=inst_length, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
+        self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
+        self.conv4 = nn.Conv1d(in_channels=ch3, out_channels=ch4, kernel_size=ck4, stride=cs4, padding=cp4)
+        self.conv5 = nn.Conv1d(in_channels=ch4, out_channels=ch5, kernel_size=ck5, stride=cs5, padding=cp5)
+        self.conv6 = nn.Conv1d(in_channels=ch5, out_channels=ch6, kernel_size=ck6, stride=cs6, padding=cp6)
+        self.conv7 = nn.Conv1d(in_channels=ch6, out_channels=ch7, kernel_size=ck7, stride=cs7, padding=cp7)
+        self.conv8 = nn.Conv1d(in_channels=ch7, out_channels=ch8, kernel_size=ck8, stride=cs8, padding=cp8)
+        self.f1_input = math.floor((context_length + 2 * cp1 - ck1) / cs1 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp2 - ck2) / cs2 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp3 - ck3) / cs3 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp4 - ck4) / cs4 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp5 - ck5) / cs5 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp6 - ck6) / cs6 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp7 - ck7) / cs7 + 1)
+        print(self.f1_input, end=' ')
+        self.f1_input = math.floor((self.f1_input + 2 * cp8 - ck8) / cs8 + 1)
+        print(self.f1_input)
+        self.f1_input *= ch8
+        self.f1_input = int(self.f1_input)
+        self.fc1 = nn.Linear(self.f1_input, f1)
+        self.fc2 = nn.Linear(f1, out)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = F.relu(self.conv5(x))
+        x = F.relu(self.conv6(x))
+        x = F.relu(self.conv7(x))
+        x = F.relu(self.conv8(x))
         x = x.view(-1, self.f1_input)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)

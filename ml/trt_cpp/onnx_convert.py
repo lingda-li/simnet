@@ -1,7 +1,7 @@
 import torch
 import sys
 import torch.onnx
-from models import *
+from models import CNN7_F
 context=111
 instr=50
 torch.set_default_dtype(torch.float32)
