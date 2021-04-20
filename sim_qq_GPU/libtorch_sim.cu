@@ -138,7 +138,7 @@ void display(float *data, int size, int rows)
 
 int main(int argc, char *argv[])
 {
-  printf("args count: %d\n", argc);
+  //printf("args count: %d\n", argc);
 #ifdef CLASSIFY
   if (argc != 7)
   {
@@ -162,7 +162,7 @@ for (int i = 0; i < TD_SIZE; i++) {
     default_val[i] = default_val[i % TD_SIZE];
 
 
-cout<< argv[3] << endl;
+//cout<< argv[3] << endl;
 torch::jit::script::Module lat_module;
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
@@ -180,7 +180,7 @@ torch::jit::script::Module lat_module;
 //cout<<endl;
 const unsigned long long int Total_Trace = atoi(argv[4]);
 const unsigned long long int Instructions = atoi(argv[5]);
-cout<< "Total_Trace: "<< Total_Trace << ", Instructions: "<< Instructions << endl;
+//cout<< "Total_Trace: "<< Total_Trace << ", Instructions: "<< Instructions << endl;
 //std::string model_path(argv[3]);
 at::Tensor input = torch::ones({atoi(argv[4]), ML_SIZE});
 float *inp= input.data_ptr<float>();
@@ -197,7 +197,7 @@ aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 
 int Batch_size = Instructions / Total_Trace;
 if(Instructions%Total_Trace!=0){
-        printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
+        //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
         Batch_size= Batch_size +1;
         unsigned long long int new_instr=  (Batch_size+1)*Total_Trace;
         trace = (float *)malloc(TRACE_DIM * new_instr *2* sizeof(float));
@@ -235,7 +235,8 @@ Tick *aux_trace_all[Total_Trace];
 #pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
-  int offset = i * (Batch_size);
+  unsigned long long int offset = i * (Batch_size);
+  //cout<< "Offset: "<< offset << endl;
   trace_all[i] = trace + offset * TRACE_DIM;
   aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
 }
@@ -271,18 +272,18 @@ FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
   //if((iteration % 500)==0)
-  {cout << "\nIteration: " << iteration << endl;}
+  //{cout << "\nIteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-	  printf("%d\n",i);
+	  //printf("%d\n",i);
     if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],0))
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("Trace: %d, read\n",i);
     }
-  printf("Inst read\n"); 
+  //printf("Inst read\n"); 
   double check1 = wtime();
   red+= (check1-st);
     H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
@@ -327,6 +328,7 @@ Tick *total_tick;
 H_ERR(cudaMalloc((void **)&total_tick, sizeof(Tick)));
 result<<<1, 1>>>(rob_d, Total_Trace, Instructions, total_tick);
 H_ERR(cudaDeviceSynchronize());
+//H_ERR(cudaMemcpy(&total_tick[i], total_tick_d[i], sizeof(Tick), cudaMemcpyDeviceToHost));
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 //cout << "Total time: " << (end_ - start_) << endl;
 #ifdef RUN_TRUTH

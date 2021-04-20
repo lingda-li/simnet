@@ -3,6 +3,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <string>
 #include <cassert>
 #include <cmath>
 #include <sys/time.h>
@@ -11,6 +12,8 @@
 #include "herror.h"
 #include "trt.cuh"
 #include "sim.cuh"
+//#include <boost/filesystem.hpp>
+//##include <filename>
 using namespace std;
 #define NO_MEAN
 
@@ -251,12 +254,6 @@ read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 //aux_trace = (Tick *)malloc(AUX_TRACE_DIM * new_instr* sizeof(Tick));
 //omp_set_num_threads(96);
 double measured_time = 0.0;
-Tick Case0 = 0;
-Tick Case1 = 0;
-Tick Case2 = 0;
-Tick Case3 = 0;
-Tick Case4 = 0;
-Tick Case5 = 0;
 int *fetched_inst_num = new int[Total_Trace];
 int *fetched = new int[Total_Trace];
 int *ROB_flag = new int[Total_Trace];
@@ -369,8 +366,15 @@ struct timeval s1, s2;
 #ifdef DEBUG
   fclose(pFile);
 #endif
-  cout<< argv[3] <<", ";
-  printf("%.4f, %.4f, ",red/Instructions*1000000, pre/Instructions*1000000);
+  //boost::filesystem::path d(argv[1]);
+  //cout<<d.filename().string()<<", ";
+  string p(argv[3]);
+  string d(argv[2]);
+  size_t found= p.find_last_of("/\\");
+  cout<<p.substr(found+1)<<",";
+  found= d.find_last_of("/\\");
+  cout<< d.substr(found+1) <<",";
+  printf("%.4f,%.4f,",red/Instructions*1000000, pre/Instructions*1000000);
   //printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 //printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red/Instructions*1000000, tr/Instructions*1000000, pre/Instructions*1000000, inf/Instructions*1000000, upd/Instructions*1000000);
 double end_ = wtime();
@@ -403,8 +407,8 @@ cout << "Truth"
      << "\n";
 #endif
 //cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
-cout << total_time << ", "<< ROB_per_GPU <<", " ;
-cout << agg_tick<< ", ";
+cout << total_time << ","<< ROB_per_GPU <<","<< nGPUs<<"," ;
+cout << agg_tick<< ",";
 cout << Instructions / total_time / 1000000.0 << "\n";
 //cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";
 //cout << "Trace: " << argv[1] << "\n";
@@ -413,5 +417,5 @@ cout << "Model: " << argv[3] << " ,GPUs: " << nGPUs << "\n";
 #else
   //cout << "Lat Model: " << argv[3] << "\n";
 #endif
-return 0;
+return agg_tick;
 }
