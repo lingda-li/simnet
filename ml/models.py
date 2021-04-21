@@ -76,6 +76,20 @@ class FC2(nn.Module):
         x = self.fc2(x)
         return x
 
+class FC3(nn.Module):
+    def __init__(self, out, f1, f2):
+        super(FC3, self).__init__()
+        self.fc1 = nn.Linear(inst_length*context_length, f1)
+        self.fc2 = nn.Linear(f1, f2)
+        self.fc3 = nn.Linear(f2, out)
+
+    def forward(self, x):
+        x = x.view(-1, inst_length*context_length)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
 class CNN_F(nn.Module):
     def __init__(self, out, ck1, ch1, cs1, cp1, f1):
         super(CNN_F, self).__init__()
