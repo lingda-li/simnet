@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string.h>
 #include "wtime.h"
 #include <iterator>
 //#define  batch_size 1
@@ -22,9 +23,9 @@ class Logger : public nvinfer1::ILogger
 public:
     void log(Severity severity, const char* msg) override {
         // remove this 'if' if you need more logged info
-	if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) {
+	//if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) {
             std::cout << msg << "\n";
-	}
+//	}
     }    
 } gLogger;
 
@@ -57,7 +58,7 @@ size_t getSizeByDim(const nvinfer1::Dims& dims)
 
 // initialize TensorRT engine and parse ONNX model --------------------------------------------------------------------
 void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaEngine>& engine,
-                    TRTUniquePtr<nvinfer1::IExecutionContext>& context, int batch_size)
+                    TRTUniquePtr<nvinfer1::IExecutionContext>& context, int batch_size, int half)
 {
     TRTUniquePtr<nvinfer1::IBuilder> builder{nvinfer1::createInferBuilder(gLogger)};
     const auto explicitBatch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
@@ -75,12 +76,13 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
         return;
     }
     // allow TensorRT to use up to 1GB of GPU memory for tactic selection.
-    config->setMaxWorkspaceSize(1ULL << 28);
+    config->setMaxWorkspaceSize(1ULL << 30);
     // use FP16 mode if possible
     
-    if (builder->platformHasFastFp16())
+    if (builder->platformHasFastFp16() && half)
     {
-        //config->setFlag(nvinfer1::BuilderFlag::kFP16);
+        printf("Half flag\n");
+	config->setFlag(nvinfer1::BuilderFlag::kFP16);
     }
     
     // we have only one image in batch
@@ -111,13 +113,13 @@ std::string readBuffer(std::string const& path)
 
 
 
-void serializer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine)
+void serializer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine, std::string name)
 {
     TRTUniquePtr<nvinfer1::IHostMemory> serializedModel{engine->serialize()};
-    std::ofstream p("tensorrt_models/simnet_cnn7_8k.engine",std::ios::binary);
+    std::ofstream p(name,std::ios::binary);
     p.write((const char*)serializedModel->data(),serializedModel->size());
     p.close();
-    cout<<"Serialized\n";
+    cout<<"Serialized: "<< name << "\n";
     //serializedModel->destroy();
 }
 
@@ -132,10 +134,6 @@ void deseralizer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine, TRTUniquePtr<nvinf
     //engine.reset(engine);
     context.reset(engine->createExecutionContext());
     printf("Model loaded\n");
-}
-
-void load(){
-
 }
 
 void printHelpInfo()
@@ -155,8 +153,6 @@ void printHelpInfo()
     std::cout << "--fp16          Run in FP16 mode." << std::endl;
 }
 
-
-
 int main(int argc, char* argv[])
 {
     if (argc < 2)
@@ -168,14 +164,20 @@ int main(int argc, char* argv[])
       //struct timeval start, start1,check1,end; 
     int batch_size= atoi(argv[2]);
     std::string model_path(argv[1]);
+    std::string name(argv[3]);
+    int half= atoi(argv[4]);
     TRTUniquePtr< nvinfer1::ICudaEngine > engine{nullptr};
     TRTUniquePtr< nvinfer1::IExecutionContext > context{nullptr};
     //deseralizer(engine,context,model_path);
     //serializer(engine);
     std::vector<nvinfer1::Dims> input_dims;
     std::vector<nvinfer1::Dims> output_dims;
-    parseOnnxModel(model_path, engine, context, batch_size); 
-    serializer(engine);
+    char hal[10], mod[20];
+     if(half==1){
+        std:string hal("_half");
+    }
+    parseOnnxModel(model_path, engine, context, batch_size, half); 
+    serializer(engine, name);
     printf("Max batch size for model: %d\n",engine->getMaxBatchSize());
     std::vector<void*> buffers(engine->getNbBindings());
     //printf("Context size: %d \t (Memory for model operations) \n", context->getBindingDimensions(0));

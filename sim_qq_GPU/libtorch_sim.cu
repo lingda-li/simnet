@@ -65,24 +65,24 @@ if (warpTID == 0){
       }
 	 newInst = rob->add();
 	 memcpy(newInst, &insts[index], sizeof(Inst)); 
-	 printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
+	 //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     }
     __syncwarp();
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-     if(warpTID==0){printf("ROB update\n");}
+     //if(warpTID==0){printf("ROB update\n");}
      __syncwarp();
       rob->update_fetch_cycle(curTick - lastFetchTick);
       __syncwarp();
-     if(warpTID==0){printf("SQ update\n");}
+     //if(warpTID==0){printf("SQ update\n");}
      __syncwarp();
       sq->update_fetch_cycle(curTick - lastFetchTick);  
       __syncwarp();
     } 
     __syncwarp();
-    if(warpTID==0){printf("ROB: head: %d, tail: %d \n", rob->head, rob->tail);}
-     if(warpTID==0){printf("SQ: head: %d, tail: %d \n", sq->head, sq->tail);}
+    //if(warpTID==0){printf("ROB: head: %d, tail: %d \n", rob->head, rob->tail);}
+     //if(warpTID==0){printf("SQ: head: %d, tail: %d \n", sq->head, sq->tail);}
      __syncwarp();
     int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
     __syncwarp();
@@ -138,7 +138,7 @@ void display(float *data, int size, int rows)
 
 int main(int argc, char *argv[])
 {
-  printf("args count: %d\n", argc);
+  //printf("args count: %d\n", argc);
 #ifdef CLASSIFY
   if (argc != 7)
   {
@@ -162,7 +162,7 @@ for (int i = 0; i < TD_SIZE; i++) {
     default_val[i] = default_val[i % TD_SIZE];
 
 
-cout<< argv[3] << endl;
+//cout<< argv[3] << endl;
 torch::jit::script::Module lat_module;
   try {
     // Deserialize the ScriptModule from a file using torch::jit::load().
@@ -178,11 +178,11 @@ torch::jit::script::Module lat_module;
 //lat_module.save("libtorch.pt");
 //return 0;
 //cout<<endl;
-int Total_Trace = atoi(argv[4]);
-int Instructions = atoi(argv[5]);
-cout<< "Total_Trace: "<< Total_Trace << ", Instructions: "<< Instructions << endl;
+const unsigned long long int Total_Trace = atoi(argv[4]);
+const unsigned long long int Instructions = atoi(argv[5]);
+//cout<< "Total_Trace: "<< Total_Trace << ", Instructions: "<< Instructions << endl;
 //std::string model_path(argv[3]);
-at::Tensor input = torch::ones({Total_Trace, ML_SIZE});
+at::Tensor input = torch::ones({atoi(argv[4]), ML_SIZE});
 float *inp= input.data_ptr<float>();
 //cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 float *inputPtr, *output;
@@ -193,8 +193,29 @@ float *trace;
 Tick *aux_trace;
 trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
-read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
+
+
 int Batch_size = Instructions / Total_Trace;
+if(Instructions%Total_Trace!=0){
+        //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
+        Batch_size= Batch_size +1;
+        unsigned long long int new_instr=  (Batch_size+1)*Total_Trace;
+        trace = (float *)malloc(TRACE_DIM * new_instr *2* sizeof(float));
+        aux_trace = (Tick *)malloc(AUX_TRACE_DIM *2* new_instr* sizeof(Tick));
+        unsigned long long int index= Instructions;
+        for (index; index<new_instr; index++){
+                memcpy(&trace[index * TRACE_DIM], zeros, sizeof(float)*TRACE_DIM);
+                memcpy(&aux_trace[index * AUX_TRACE_DIM], zeros, sizeof(Tick)*AUX_TRACE_DIM);
+                index+=1;
+                //trace+= TRACE_DIM; aux_trace+= AUX_TRACE_DIM;
+        }
+}
+else {
+        trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
+        aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
+}
+read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
+//int Batch_size = Instructions / Total_Trace;
 //cout << " Iterations: " << Batch_size << endl;
 //cout<<"Parameters read..\n";
 omp_set_num_threads(1);
@@ -214,7 +235,8 @@ Tick *aux_trace_all[Total_Trace];
 #pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
-  int offset = i * Batch_size;
+  unsigned long long int offset = i * (Batch_size);
+  //cout<< "Offset: "<< offset << endl;
   trace_all[i] = trace + offset * TRACE_DIM;
   aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
 }
@@ -250,17 +272,18 @@ FILE *pFile;
 pFile= fopen ("libcustom.bin", "wb");
 while (iteration < Batch_size){
   //if((iteration % 500)==0)
-  {cout << "\nIteration: " << iteration << endl;}
+  //{cout << "\nIteration: " << iteration << endl;}
   double st = wtime();
 #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],i))
+	  //printf("%d\n",i);
+    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],0))
     {cout << "Error\n";}
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("Trace: %d, read\n",i);
     }
- //printf("Inst read\n"); 
+  //printf("Inst read\n"); 
   double check1 = wtime();
   red+= (check1-st);
     H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
@@ -285,7 +308,7 @@ while (iteration < Batch_size){
   //cout<<outputs<<endl;
   double check4= wtime();
   inf+= (check4-check3);
-  cout<<"Output size: "<< outputs.sizes()[0]<<endl;
+  //cout<<"Output size: "<< outputs.sizes()[0]<<endl;
   //cout<<"Inference done\n";
   int out_shape= outputs.sizes()[1];
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*33, cudaMemcpyHostToDevice));
@@ -301,8 +324,11 @@ printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
-result<<<1, 1>>>(rob_d, Total_Trace, Instructions);
+Tick *total_tick;
+H_ERR(cudaMalloc((void **)&total_tick, sizeof(Tick)));
+result<<<1, 1>>>(rob_d, Total_Trace, Instructions, total_tick);
 H_ERR(cudaDeviceSynchronize());
+//H_ERR(cudaMemcpy(&total_tick[i], total_tick_d[i], sizeof(Tick), cudaMemcpyDeviceToHost));
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 //cout << "Total time: " << (end_ - start_) << endl;
 #ifdef RUN_TRUTH
@@ -310,7 +336,7 @@ cout << "Truth"
      << "\n";
 #endif
 return 0;
-     cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
+cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
 cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";

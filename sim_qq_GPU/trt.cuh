@@ -72,6 +72,6 @@ void deseralizer(TRTUniquePtr<nvinfer1::ICudaEngine>& engine, TRTUniquePtr<nvinf
     else{cout<<"couldn't read model.\n";}
     //engine.reset(engine);
     context.reset(engine->createExecutionContext());
-    printf("Model loaded\n");
+    //printf("Model loaded\n");
 }
 #endif
