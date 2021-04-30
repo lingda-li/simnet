@@ -28,7 +28,7 @@ class ModelSet:
         self.name = name
         self.model = model
         self.optimizer = optimizer
-        self.min_loss = min_loss
+        self.min_loss = float("inf")
         self.cur_loss = 0
         self.total_lat_loss = 0
         self.total_cla_loss1 = 0
@@ -210,8 +210,7 @@ def main_rank(rank, args):
         else:
             model.to(device)
         optimizer = optim.Adam(model.parameters())
-        min_loss = 1000
-        models.append(ModelSet(i, name, model, optimizer, min_loss))
+        models.append(ModelSet(i, name, model, optimizer))
         i += 1
         #ori_lr = optimizer.defaults['lr']
     start_epoch = 1
