@@ -2,8 +2,8 @@ import sys
 import os
 import argparse
 import numpy as np
-#from qq_format import *
-from pk_format import *
+from qq_format import *
+#from pk_format import *
 
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)

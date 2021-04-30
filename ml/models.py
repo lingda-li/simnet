@@ -876,23 +876,20 @@ class CNN8_F(nn.Module):
 
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.1, max_len=500):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
 
-        pe = torch.zeros(max_len, d_model) #5000 x 51
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1) #5000,1
-        seq_length = 111 #10000
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(seq_length)/d_model))#26
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0)/d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
-        dimen = pe[:,1::2].shape[-1]
-        print("Dimen",dimen)
-        pe[:, 1::2] = torch.cos(position * div_term)[:,:dimen]
+        pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x + self.pe[:111, :]
+        x = x + self.pe[:context_length, :]
         return self.dropout(x)
 
 
@@ -940,6 +937,51 @@ class CustomTransformerModel(nn.Module):
         src = src * math.sqrt(self.ninp)
         src = self.pos_encoder(src)
         output = self.transformer_encoder(src, self.src_mask)
+        output = self.decoder(output)
+
+        return output[-1]
+
+
+class LLDTransformerModel(nn.Module):
+
+    def __init__(self,
+                 nout,
+                 nhead, # number of 'heads'
+                 nhid,  # dimension of the feedforward network in nn.TransformerEncoder
+                 nlayers, #number of encoder layers
+                 dropout=0.1):
+        super(LLDTransformerModel, self).__init__()
+
+        self.model_type = 'Transformer'
+        self.pos_encoder = PositionalEncoding(inst_length, dropout)
+        encoder_layers = TransformerEncoderLayer(d_model=inst_length,
+                                                 nhead=nhead,
+                                                 dim_feedforward=nhid,
+                                                 dropout=dropout)
+        self.encoder = TransformerEncoder(encoder_layers, nlayers)
+
+        self.decoder = nn.Linear(inst_length, nout)
+        src_mask = self.generate_square_subsequent_mask(context_length)
+        self.register_buffer('src_mask', src_mask)
+        self.init_weights()
+
+    def generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+    
+    def init_weights(self):
+        initrange = 0.1
+        self.decoder.bias.data.zero_()
+        self.decoder.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, src):
+        src = src.view(-1, context_length, inst_length)
+        src = torch.flip(src, [1])
+        src = src.transpose(0,1)
+
+        src = self.pos_encoder(src)
+        output = self.encoder(src, self.src_mask)
         output = self.decoder(output)
 
         return output[-1]
