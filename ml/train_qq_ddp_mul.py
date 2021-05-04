@@ -23,7 +23,7 @@ cla_loss_fn = nn.CrossEntropyLoss()
 
 
 class ModelSet:
-    def __init__(self, idx, name, model, optimizer, min_loss):
+    def __init__(self, idx, name, model, optimizer):
         self.idx = idx
         self.name = name
         self.model = model
