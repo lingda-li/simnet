@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from cfg import context_length, inst_length
 from enet import E1DNet
+from vit import InsT
 
 class Fusion1dFC(nn.Module):
     def __init__(self, out):
