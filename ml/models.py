@@ -943,9 +943,9 @@ class CustomTransformerModel(nn.Module):
 
 
 class LLDTransformerModel(nn.Module):
-
     def __init__(self,
                  nout,
+                 ninp,
                  nhead, # number of 'heads'
                  nhid,  # dimension of the feedforward network in nn.TransformerEncoder
                  nlayers, #number of encoder layers
@@ -953,14 +953,15 @@ class LLDTransformerModel(nn.Module):
         super(LLDTransformerModel, self).__init__()
 
         self.model_type = 'Transformer'
-        self.pos_encoder = PositionalEncoding(inst_length, dropout)
-        encoder_layers = TransformerEncoderLayer(d_model=inst_length,
+        self._conv_stem = nn.Conv1d(inst_length, ninp, kernel_size=1, stride=1, bias=False)
+        self.pos_encoder = PositionalEncoding(ninp, dropout)
+        encoder_layers = TransformerEncoderLayer(d_model=ninp,
                                                  nhead=nhead,
                                                  dim_feedforward=nhid,
                                                  dropout=dropout)
         self.encoder = TransformerEncoder(encoder_layers, nlayers)
 
-        self.decoder = nn.Linear(inst_length, nout)
+        self.decoder = nn.Linear(ninp, nout)
         src_mask = self.generate_square_subsequent_mask(context_length)
         self.register_buffer('src_mask', src_mask)
         self.init_weights()
@@ -969,7 +970,7 @@ class LLDTransformerModel(nn.Module):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
-    
+
     def init_weights(self):
         initrange = 0.1
         self.decoder.bias.data.zero_()
@@ -978,6 +979,9 @@ class LLDTransformerModel(nn.Module):
     def forward(self, src):
         src = src.view(-1, context_length, inst_length)
         src = torch.flip(src, [1])
+        src = src.transpose(1,2)
+        src = F.relu(self._conv_stem(src))
+        src = src.transpose(1,2)
         src = src.transpose(0,1)
 
         src = self.pos_encoder(src)
