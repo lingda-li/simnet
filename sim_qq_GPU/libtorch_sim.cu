@@ -23,9 +23,9 @@ using namespace std;
 Tick Num = 0;
 
 
-
+/*
 __global__ void
-preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace)
+preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *index_all)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
@@ -47,7 +47,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   {
     rob= &rob_d[index];
     sq= &sq_d[index];
-    Inst *newInst;
+    //Inst *newInst;
     //Inst __shared__ *temp[4];
     Tick curTick = rob->curTick;
     Tick lastFetchTick = rob->lastFetchTick;
@@ -63,7 +63,7 @@ if (warpTID == 0){
 	      //printf("SQ retired: %d, ROB Retired: %d\n", sq_retired, retired);
               //printf("Retire until: %ld, Retired: %d\n",curTick, retired);
       }
-	 newInst = rob->add();
+	 Inst *newInst = rob->add();
 	 memcpy(newInst, &insts[index], sizeof(Inst)); 
 	 //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     }
@@ -90,6 +90,7 @@ if (warpTID == 0){
     __syncwarp();
     int num= rob_num + sq_num;
     // copy default values
+    //if(warpTID==0){printf("%d, %lu, %lu, %d, %d\n", index_all[index], curTick, lastFetchTick, rob_num, sq_num);} __syncwarp();
     if(num < CONTEXTSIZE && warpTID==0)
     {
        memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
@@ -105,7 +106,7 @@ if (warpTID == 0){
     index += Total;
   }
 }
-
+*/
 
 
 float *read_numbers(char *fname, int sz)
@@ -200,8 +201,8 @@ if(Instructions%Total_Trace!=0){
         //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
         Batch_size= Batch_size +1;
         unsigned long long int new_instr=  (Batch_size+1)*Total_Trace;
-        trace = (float *)malloc(TRACE_DIM * new_instr *2* sizeof(float));
-        aux_trace = (Tick *)malloc(AUX_TRACE_DIM *2* new_instr* sizeof(Tick));
+        trace = (float *)malloc(TRACE_DIM * new_instr * sizeof(float));
+        aux_trace = (Tick *)malloc(AUX_TRACE_DIM * new_instr* sizeof(Tick));
         unsigned long long int index= Instructions;
         for (index; index<new_instr; index++){
                 memcpy(&trace[index * TRACE_DIM], zeros, sizeof(float)*TRACE_DIM);
@@ -231,11 +232,15 @@ int *fetched = new int[Total_Trace];
 int *ROB_flag = new int[Total_Trace];
 float *trace_all[Total_Trace];
 Tick *aux_trace_all[Total_Trace];
+int index_all[Total_Trace];
+int *index_all_gpu;
+H_ERR(cudaMalloc((void **)&index_all_gpu, sizeof(int) * Total_Trace));
 //printf("variable init\n");
 #pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
   unsigned long long int offset = i * (Batch_size);
+  index_all[i]= offset;
   //cout<< "Offset: "<< offset << endl;
   trace_all[i] = trace + offset * TRACE_DIM;
   aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
@@ -268,8 +273,9 @@ int iteration = 0;
 gettimeofday(&total_start, NULL);
 double start_ = wtime();
 double red=0,pre=0, tr=0,inf=0,upd=0;
-FILE *pFile;
+FILE *pFile,*outFile;
 pFile= fopen ("libcustom.bin", "wb");
+outFile= fopen("pred.bin", "wb");
 while (iteration < Batch_size){
   //if((iteration % 500)==0)
   //{cout << "\nIteration: " << iteration << endl;}
@@ -278,8 +284,11 @@ while (iteration < Batch_size){
   for (int i = 0; i < Total_Trace; i++)
   {
 	  //printf("%d\n",i);
-    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],0))
+	  index_all[i]+=1;
+    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],index_all[i]))
     {cout << "Error\n";}
+    //index_all[i]+=1;
+    //printf("%d\n",index_all[i]);
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("Trace: %d, read\n",i);
     }
@@ -290,7 +299,8 @@ while (iteration < Batch_size){
     double check2 = wtime();
   tr+= (check2-check1);
   //cout<<"Data transferred\n";
-  preprocess<<<4096, 64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace);
+  H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
+  preprocess<<<4096, 64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
@@ -304,6 +314,7 @@ while (iteration < Batch_size){
   std::vector<torch::jit::IValue> inputs;
   inputs.push_back(input.cuda());  
   at::Tensor outputs = lat_module.forward(inputs).toTensor();
+  outputs=outputs.to(at::kCPU);
   cudaStreamSynchronize(0);
   //cout<<outputs<<endl;
   double check4= wtime();
@@ -312,7 +323,9 @@ while (iteration < Batch_size){
   //cout<<"Inference done\n";
   int out_shape= outputs.sizes()[1];
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*33, cudaMemcpyHostToDevice));
-  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape);
+  fwrite(outputs.data_ptr<float>(), sizeof(float), 3, outFile);
+  //H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
+  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape,index_all_gpu);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
   double check5=wtime();
@@ -320,7 +333,8 @@ while (iteration < Batch_size){
   iteration++;
 }
 fclose(pFile);
-printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
+fclose(outFile);
+//printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
@@ -335,7 +349,7 @@ double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec -
 cout << "Truth"
      << "\n";
 #endif
-return 0;
+//return 0;
 cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
