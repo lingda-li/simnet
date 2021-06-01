@@ -78,11 +78,11 @@ def train_mul(args, models, device, train_loader, epoch, rank):
     if args.distributed:
         dist.barrier()
     for ms in models:
-        ms.total_lat_loss /= len(train_loader) * train_loader.batch_size / 65536
+        ms.total_lat_loss /= len(train_loader)
         if not args.regression:
-            ms.total_cla_loss1 /= len(train_loader) * train_loader.batch_size / 65536
-            ms.total_cla_loss2 /= len(train_loader) * train_loader.batch_size / 65536
-            ms.total_cla_loss3 /= len(train_loader) * train_loader.batch_size / 65536
+            ms.total_cla_loss1 /= len(train_loader)
+            ms.total_cla_loss2 /= len(train_loader)
+            ms.total_cla_loss3 /= len(train_loader)
             print('Train Epoch {} {}: {} \tLat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tTime: {:.1f}'.format(
                 epoch, ms.idx, rank, ms.total_lat_loss, ms.total_cla_loss1, ms.total_cla_loss2, ms.total_cla_loss3, end_t - start_t), flush=True)
         else:
@@ -108,11 +108,11 @@ def test_mul(args, models, device, test_loader, rank):
                     ms.total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
                     ms.total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
     for ms in models:
-        ms.total_lat_loss /= len(test_loader) * test_loader.batch_size / 65536
+        ms.total_lat_loss /= len(test_loader)
         if not args.regression:
-            ms.total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
-            ms.total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
-            ms.total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
+            ms.total_cla_loss1 /= len(test_loader)
+            ms.total_cla_loss2 /= len(test_loader)
+            ms.total_cla_loss3 /= len(test_loader)
             ms.cur_loss = combine_loss(ms.total_lat_loss, ms.total_cla_loss1, ms.total_cla_loss2, ms.total_cla_loss3)
             print('Test set {} {}: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f} \tCombined Loss: {:.6f}'.format(
                 ms.idx, rank, ms.total_lat_loss, ms.total_cla_loss1, ms.total_cla_loss2, ms.total_cla_loss3, ms.cur_loss), flush=True)

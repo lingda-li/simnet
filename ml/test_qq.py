@@ -92,14 +92,15 @@ def test(args, model, device, test_loader):
                 total_cla_loss1 += cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0]).item()
                 total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
                 total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
-            analyze(args, output, lat_target, cla_target, data)
-    total_lat_loss /= len(test_loader) * test_loader.batch_size / 65536
+            if args.no_cuda:
+                analyze(args, output, lat_target, cla_target, data)
+    total_lat_loss /= len(test_loader)
     if args.no_class:
         print('Test set: Lat Loss: {:.6f}'.format(total_lat_loss), flush=True)
     else:
-        total_cla_loss1 /= len(test_loader) * test_loader.batch_size / 65536
-        total_cla_loss2 /= len(test_loader) * test_loader.batch_size / 65536
-        total_cla_loss3 /= len(test_loader) * test_loader.batch_size / 65536
+        total_cla_loss1 /= len(test_loader)
+        total_cla_loss2 /= len(test_loader)
+        total_cla_loss3 /= len(test_loader)
         print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
             total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
 
@@ -114,11 +115,11 @@ def load_checkpoint(name, model, training=False, optimizer=None):
     print("Loaded checkpoint", name)
 
 
-def save_ts_model(name, model):
+def save_ts_model(name, model, device):
     assert 'checkpoints/' in name
     name = name.replace('checkpoints/', 'models/')
     model.eval()
-    traced_script_module = torch.jit.trace(model, torch.rand(1, context_length * inst_length))
+    traced_script_module = torch.jit.trace(model, torch.rand(1, context_length * inst_length).to(device))
     traced_script_module.save(name)
     print("Saved model", name)
 
@@ -160,7 +161,7 @@ def main():
     model.to(device)
     test(args, model, device, test_loader)
     if not args.no_save:
-        save_ts_model(args.checkpoints, model)
+        save_ts_model(args.checkpoints, model, device)
 
 
 if __name__ == '__main__':
