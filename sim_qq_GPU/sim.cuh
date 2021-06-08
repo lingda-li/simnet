@@ -97,7 +97,7 @@ struct Inst
     for (int i = 3; i < TD_SIZE; i++)
     {
       train_data[i] = trace[i+offset];
-      //printf("%.0f ",train_data[i]);
+      //printf("%.1f,",train_data[i]);
     }
     //std::cout << std::endl;
     train_data[0] = train_data[1] = 0.0;
@@ -109,7 +109,7 @@ struct Inst
       iwalkAddr[i] = aux_trace[4 + i];
     for (int i = 0; i < 3; i++)
       dwalkAddr[i] = aux_trace[7 + i]; 
-    //printf("%d,%.1f,%.1f,%.1f,%.1f\n",index,train_data[3],train_data[4],train_data[5],train_data[6]);
+    //printf("%.1f,%.1f,%.1f,%.1f,",train_data[3],train_data[4],train_data[5],train_data[6]);
     return true;
   }
 };
@@ -120,6 +120,7 @@ struct SQ {
   int head = 0;
   int len = 0;
   int tail = 0;
+  int sq_num = 0;
   __device__ int inc(int input) {
     if (input == SQSIZE)
       return 0;
@@ -220,6 +221,7 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
        memcpy(&input[poss*TD_SIZE],&insts[context].train_data,  sizeof(float)*TD_SIZE);
       i+= WARPSIZE;
     }
+    sq_num= num[W];
     return num[W];
   }
 
@@ -252,6 +254,7 @@ struct ROB
   int head = 0;
   int tail = 0;
   int len = 0;
+  int rob_num=0;
   Tick curTick=0;
   Tick lastFetchTick=0;
   __host__ __device__ int inc(int input)
@@ -425,6 +428,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     __syncwarp();
        //printf("Here. 3\n");
     //__syncwarp();
+    rob_num=num[W];
     return num[W];
   }
 };
@@ -496,7 +500,8 @@ __device__ Tick min_(Tick a, Tick b)
 
 
 __global__ void
-update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int *index_all)
+update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int iteration, int W, int Batch_size, int *index_all)
+//update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int index = TID;
@@ -579,8 +584,18 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[0] = -int_fetch_lat;
     rob->insts[tail].train_data[1] = int_complete_lat;
     rob->insts[tail].train_data[2] = int_store_lat;
-    //printf(" %d, %d, %d, %d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
-    //printf(" %d, %d, %d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
+#ifdef WARMUP
+    if ((iteration<W) && (index!=0)){}
+    else if((iteration>=Batch_size)&& (index==0)){ }
+
+	//else { printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat); }
+    //printf("Wramup\n");
+    //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
+   printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
+#else
+    printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
+#endif
+    //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
         #ifdef DEBUG
     //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
 #endif
@@ -719,7 +734,7 @@ if (warpTID == 0){
     __syncwarp();
     int num= rob_num + sq_num;
     // copy default values
-    //if(warpTID==0){printf("%d, %lu, %lu, %d, %d\n", index_all[index], curTick, lastFetchTick, rob_num, sq_num);} __syncwarp();
+    //if(threadIdx.x==0){printf("%d,%d,",rob_num,sq_num);} __syncwarp();
     if(num < CONTEXTSIZE && warpTID==0)
     {
        memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);

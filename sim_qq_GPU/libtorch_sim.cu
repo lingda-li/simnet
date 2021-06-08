@@ -140,19 +140,20 @@ void display(float *data, int size, int rows)
 int main(int argc, char *argv[])
 {
   //printf("args count: %d\n", argc);
-#ifdef CLASSIFY
+#ifdef WARMUP
   if (argc != 7)
   {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <class module> <variances> <# inst> <Total trace>" << endl;
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <Total trace><# inst> <W (warmup)>" << endl;
     return 0;
+    //int W= atoi(argv[6]);
   }
 #else
   if (argc != 6)
   {
     cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <Total trace> <#Insts>" << endl;
-#endif
   return 0;
 }
+#endif
 //int arg_idx = 4;
 //float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
 
@@ -236,14 +237,25 @@ int index_all[Total_Trace];
 int *index_all_gpu;
 H_ERR(cudaMalloc((void **)&index_all_gpu, sizeof(int) * Total_Trace));
 //printf("variable init\n");
+#ifdef WARMUP
+int W= atoi(argv[6]);
+#else
+int W=0;
+#endif
 #pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
   unsigned long long int offset = i * (Batch_size);
+#ifdef WARMUP
+  if(i!=0){
+ offset= offset - W;
+ cout<< "W: "<<W<<", Index: "<< i <<", Offset: "<< offset << endl;
+ }
+#endif
   index_all[i]= offset;
-  //cout<< "Offset: "<< offset << endl;
-  trace_all[i] = trace + offset * TRACE_DIM;
-  aux_trace_all[i] = aux_trace + offset * AUX_TRACE_DIM;
+  //cout<< "W: "<<W<<", Index: "<< i <<", Offset: "<< offset << endl;
+  trace_all[i]= trace + offset * TRACE_DIM;
+  aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
 }
 // printf("Allocated. \n");
 //return 0;
@@ -276,7 +288,8 @@ double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile,*outFile;
 pFile= fopen ("libcustom.bin", "wb");
 outFile= fopen("pred.bin", "wb");
-while (iteration < Batch_size){
+int total_iterations= Batch_size + W;
+while (iteration < total_iterations){
   //if((iteration % 500)==0)
   //{cout << "\nIteration: " << iteration << endl;}
   double st = wtime();
@@ -305,7 +318,7 @@ while (iteration < Batch_size){
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
     H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
-  fwrite(inp, sizeof(float), ML_SIZE, pFile);
+  fwrite(inp+ML_SIZE, sizeof(float), ML_SIZE, pFile);
   //printf("Input:\n");
   //display(inp, 51,4);
   pre+= (check3-check2);
@@ -325,7 +338,7 @@ while (iteration < Batch_size){
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*33, cudaMemcpyHostToDevice));
   fwrite(outputs.data_ptr<float>(), sizeof(float), 3, outFile);
   //H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
-  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape,index_all_gpu);
+  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape, iteration, W, Batch_size, index_all_gpu);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
   double check5=wtime();
@@ -349,7 +362,7 @@ double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec -
 cout << "Truth"
      << "\n";
 #endif
-//return 0;
+return 0;
 cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
