@@ -108,11 +108,12 @@ struct Inst
     //printf("loop start:train %.2f\n",trace[offset]);
     //int offset= index * TD_SIZE;
     int offset=0;
-    //printf("Index: %d,",index);
+    //printf("Index: %d,\n",index);
+    //printf("\nInput: ");
     for (int i = 3; i < TD_SIZE; i++)
     {
       train_data[i] = trace[i+offset];
-      //printf("%.1f,",train_data[i]);
+      //printf("%.0f,",train_data[i]);
     }
     //std::cout << std::endl;
     train_data[0] = train_data[1] = 0.0;
@@ -134,16 +135,28 @@ struct Inst
    Determine the number of batches;
    Have start and end address;
  */
-void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end){
+void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end, int *p_index){
   FILE *file= fopen(data,"rb");
-  int read= fread(parts,sizeof(p_index),part_count+1,file);
-  part_start[0]=0;
-  part_end[0]= parts[0];
+  int read= fread(parts,sizeof(p_index),part_count*2+2,file);
+  //part_start[0]=0;
+  //part_end[0]= parts[0];
+  //int manual[]= {0,0,8,0,60,8,93,60,113,93,118,113,119,118,152,119};
   for(int i=0;i < part_count; i++)
   {
-     part_start[i+1]= parts[i];
-     part_end[i+1]= parts[i+1];
-     printf("Index: %d, start: %d, end: %d\n", i, part_start[i], part_end[i]);
+     int index= 2*i;
+     //part_start[i]= manual[index];
+     part_start[i]= parts[index];	
+#ifdef WARMUP
+     p_index[i]= part_start[i];
+     //part_start[i]= manual[index+1];
+     part_start[i]= parts[index+1];
+#endif
+     //part_end[i]= manual[index+2];
+     part_end[i]= parts[index+2];
+     assert (part_start[i]<=part_end[i]);
+#ifdef DEBUG
+     printf("Index: %d, start: %d, p_index: %d, end: %d\n", i, part_start[i], p_index[i], part_end[i]);
+#endif
   }
 }
 
@@ -289,6 +302,7 @@ struct ROB
   int len = 0;
   int rob_num=0;
   Tick curTick=0;
+  Tick curTick_d=0;
   Tick lastFetchTick=0;
   __host__ __device__ int inc(int input)
   {
@@ -490,8 +504,13 @@ __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
   {
     //printf("I: %d\n",i);
     ROB *rob= &rob_d[i];	  
+#ifdef WARMUP
+    sum[0] += (rob->curTick - rob->curTick_d);
+    //printf("T: %d, Tick: %lu,Reduced: %lu final: %lu\n", i, rob->curTick, rob->curTick_d, (rob->curTick - rob->curTick_d));
+#else
     sum[0] += rob->curTick;
     //printf("T: %d, Tick: %lu\n", i, rob->curTick);
+#endif
   }
   printf("~~~~~~~~~Instructions: %d, Batch: %d, Prediction: %lu ~~~~~~~~~\n", instructions,Total_Trace, sum[0]);
 }
@@ -550,10 +569,10 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 #endif  
 #ifdef DEBUG 
     if (threadIdx.x == 0)
-	        {
-	printf("Input_Ptr\n");
-	dis(output, 33, 1);
-			    }
+	{
+	 printf("Input_Ptr\n");
+	 dis(output, 33, 1);
+	}
     __syncwarp();
 #endif
     Tick nextFetchTick = 0;
@@ -621,17 +640,19 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[2] = int_store_lat;
 #ifdef WARMUP
     if ((iteration<W) && (index!=0)){}
-    //else if((iteration>=Batch_size)&& (index==0)){ }
+    //if(index_all[index]==p_index[index]){rob->curTick}
+    //else if((iteration>=Batch_size)&& (index==0)){ rob->curTick}
 
 	//else { printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat); }
     //printf("Wramup\n");
     //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
-   printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
+   //if(index<=1)
+   {printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
 #else
     printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
 #endif
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
-        #ifdef DEBUG
+#ifdef DEBUG
     //printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
 #endif
     rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
@@ -706,7 +727,7 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 
 
 __global__ void
-preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *index_all, bool *active_d, int *inf_id, int *inf_index)
+preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *p_index, bool *active_d, int *inf_id, int *inf_index, int *index_count)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
@@ -727,17 +748,24 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   while (index < Total_Trace)
   {
 	//if (warpTID == 0){printf("Pre:Index: %d, active status: %d\n", index, active_d[index]);}
+    
     if(active_d[index]==1){
-    if (warpTID == 0){inf_id[index]= atomicAdd(&inf_index[0],1);
-	    //printf("Pre:Index: %d, active status: %d\n", index, active_d[index]);
-    }
-    rob= &rob_d[index];
-    sq= &sq_d[index];
-    Tick curTick = rob->curTick;
-    Tick lastFetchTick = rob->lastFetchTick;
-    input_Ptr= inputPtr + ML_SIZE * inf_id[index];
-    //int old_head= rob->head;
 
+       rob= &rob_d[index];
+       sq= &sq_d[index];
+       Tick curTick = rob->curTick;
+       Tick lastFetchTick = rob->lastFetchTick;
+       if (warpTID == 0){
+	    inf_id[index]= atomicAdd(&inf_index[0],1);
+	    index_count[index]+=1;
+#ifdef WARMUP
+    if(index_count[index]==p_index[index]){
+     rob-> curTick_d= rob ->curTick;
+     printf("Index: %d, P: %d, C: %d,Warmup completed.\n",index, p_index[index], index_count[index]);
+    }
+#endif
+	    }
+input_Ptr= inputPtr + ML_SIZE * inf_id[index];   
 if (warpTID == 0){
       //printf("\n\n");
                Inst *newInst = rob->add();
