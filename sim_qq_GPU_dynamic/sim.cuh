@@ -132,10 +132,9 @@ struct Inst
 
 /*
    Read the partition binary file;
-   Determine the number of batches;
-   Have start and end address;
+   Find each partition start,end,warmup and seperate indices;
  */
-void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end, int *p_index){
+void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end, int *p_index, int *s_index){
   FILE *file= fopen(data,"rb");
   int read= fread(parts,sizeof(p_index),part_count*2+2,file);
   //part_start[0]=0;
@@ -143,20 +142,18 @@ void partition(const char data[], int part_count, int *parts, int *part_start, i
   //int manual[]= {0,0,8,0,60,8,93,60,113,93,118,113,119,118,152,119};
   for(int i=0;i < part_count; i++)
   {
-     int index= 2*i;
-     //part_start[i]= manual[index];
+     int index= 2*i; 
      part_start[i]= parts[index];	
 #ifdef WARMUP
      p_index[i]= part_start[i];
-     //part_start[i]= manual[index+1];
-     part_start[i]= parts[index+1];
+     part_start[i]= parts[index+1]; // min to min
+     //part_start[i]= part_start[i]-2;// min to two
 #endif
-     //part_end[i]= manual[index+2];
      part_end[i]= parts[index+2];
      assert (part_start[i]<=part_end[i]);
-#ifdef DEBUG
-     printf("Index: %d, start: %d, p_index: %d, end: %d\n", i, part_start[i], p_index[i], part_end[i]);
-#endif
+//#ifdef DEBUG
+     //printf("Index: %d, start: %d, p_index: %d, end: %d\n", i, part_start[i], p_index[i], part_end[i]);
+//#endif
   }
 }
 
@@ -180,7 +177,9 @@ struct SQ {
     else
       return input - 1;
   }
-
+  __host__ __device__ void reset(){
+    head=0;tail=0;len=0;sq_num=0;
+  }
   __device__ bool is_empty() { return head == tail; }
   __device__ bool is_full() { return head == inc(tail); }
   __device__ Inst *add() {
@@ -323,6 +322,9 @@ struct ROB
   __host__ __device__ bool is_empty() { return head == tail; }
   __host__ __device__ bool is_full() { return head == inc(tail); }
 
+  __host__ __device__ void reset(){
+   head=0;tail=0;len=0;rob_num=0;curTick=0;curTick_d=0;lastFetchTick=0;
+  }
   __host__ __device__ Inst *add()
   {
     assert(!is_full());
@@ -552,15 +554,17 @@ __device__ Tick min_(Tick a, Tick b)
 
 
 __global__ void
-update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int iteration, int W, int *index_all, bool *active_d, int *inf_id)
+update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int iteration, int W, int *index_all, bool *active_d, int *inf_id, int *inf_index)
 //update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int index = TID;
   ROB *rob; SQ *sq;
+  //if(TID==0){inf_index[0]=0;} // rest the inference index for next iteration
   while (index < Total_Trace)
   {
-    if(active_d[index]==1){
+    //{printf("Up: Trace: %d, active: %d, inf_id: %d\n", index, active_d[index], inf_id[index]);}	  
+    if(active_d[index]==true){
     //{printf("Up: Trace: %d, inf_id: %d\n", index, inf_id[index]);}
 #if defined(COMBINED)
     int offset= inf_id[index] * shape;
@@ -647,9 +651,9 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     //printf("Wramup\n");
     //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
    //if(index<=1)
-   {printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
+   //{printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
 #else
-    printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
+    //printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
 #endif
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
 #ifdef DEBUG
@@ -749,7 +753,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   {
 	//if (warpTID == 0){printf("Pre:Index: %d, active status: %d\n", index, active_d[index]);}
     
-    if(active_d[index]==1){
+    if(active_d[index]==true){
 
        rob= &rob_d[index];
        sq= &sq_d[index];
@@ -761,7 +765,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
 #ifdef WARMUP
     if(index_count[index]==p_index[index]){
      rob-> curTick_d= rob ->curTick;
-     printf("Index: %d, P: %d, C: %d,Warmup completed.\n",index, p_index[index], index_count[index]);
+     //printf("Index: %d, P: %d, C: %d,Warmup completed.\n",index, p_index[index], index_count[index]);
     }
 #endif
 	    }

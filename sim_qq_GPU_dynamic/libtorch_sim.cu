@@ -119,10 +119,12 @@ int *parts= (int *)malloc(sizeof(int)*part_count*2); // allocates memory for par
 int *part_start= (int *)malloc(sizeof(int)*part_count); // partition start
 int *part_end= (int *)malloc(sizeof(int)*part_count);   // partition end
 int *p_index= (int *)malloc(sizeof(int)*part_count);   // index for actual partition; same with part_start if no warmup 
-int *p_index_d, *c_index_d;
+int *s_index= (int *)malloc(sizeof(int)*part_count);   // index from where subtraces should be reset. 
+int *p_index_d, *c_index_d, *s_index_d;
 H_ERR(cudaMalloc((void **)&p_index_d, sizeof(int) * part_count)); // partition index for device
 H_ERR(cudaMalloc((void **)&c_index_d, sizeof(int) * part_count)); // index counter for each subtrace
-partition(argv[6], Total_Trace, parts, part_start, part_end, p_index);  // -----> Replace with part_count to go through all instructions
+H_ERR(cudaMalloc((void **)&s_index_d, sizeof(int) * part_count)); // subtrace reset index for GPU
+partition(argv[6], Total_Trace, parts, part_start, part_end, p_index, s_index);  // -----> Replace with part_count to go through all instructions
 Instructions= part_end[Total_Trace-1];
 float *trace;
 Tick *aux_trace;
@@ -130,14 +132,9 @@ trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
 aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 H_ERR(cudaMemcpy(p_index_d, p_index, sizeof(int) * part_count, cudaMemcpyHostToDevice));
-omp_set_num_threads(1);
+//omp_set_num_threads(1);
 double measured_time = 0.0;
-Tick Case0 = 0;
-Tick Case1 = 0;
-Tick Case2 = 0;
-Tick Case3 = 0;
-Tick Case4 = 0;
-Tick Case5 = 0;
+
 int *fetched_inst_num = new int[Total_Trace];
 int *fetched = new int[Total_Trace];
 int *ROB_flag = new int[Total_Trace];
@@ -162,6 +159,7 @@ for (int i = 0; i < Total_Trace; i++)
 #endif
   trace_all[i]= trace + offset * TRACE_DIM;
   aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
+  if(offset>Instructions) printf("i: %d, offset: %d, instr: %d\n",i,offset,Instructions);
   assert (offset<=Instructions);
   //printf("Trace: %d, offset: %d\n",i,part_start[i]);
 }
@@ -206,15 +204,15 @@ bool *active= (bool *)malloc(Total_Trace * sizeof(bool));
 int *index_count_d;
 H_ERR(cudaMalloc((void **)&index_count_d, sizeof(int) * Total_Trace));
 H_ERR(cudaMalloc((void **)&active_d, sizeof(bool) * (Total_Trace)));
-cudaMemset(active_d, 1, Total_Trace);
-memset(active,1,Total_Trace);
+cudaMemset(active_d, true, Total_Trace*sizeof(bool));
+memset(active,true,Total_Trace*sizeof(bool));
+H_ERR(cudaDeviceSynchronize());
 int interation=0;
 while (completed!=1){
-  //if((iteration % 500)==0)
-#ifdef DEBUG
-      	{cout << "\nIteration: " << iteration++ << endl;}
-#endif
- //cout<< "*******************************************************\n";	
+  //if((iteration % 500)==0
+      	//{cout << "\nIteration: " << iteration++ << endl;}
+ //cout<< "*******************************************************\n";
+//if (iteration==11){break;} 
   double st = wtime();
   #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
@@ -228,8 +226,10 @@ while (completed!=1){
     //printf("%d\n",index_all[i]);
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
     //printf("ID: %d,instr_index: %d\n",i,index_all[i]);
+    //printf("A: ind: %d, end: %d\n ",index_all[i], part_end[i]);
+    active[i]=true;
     }
-    else{active[i]=0; }
+    else{active[i]=false;}
   }
 #ifdef DEBUG
   printf("Inst read\n"); 
@@ -244,7 +244,7 @@ while (completed!=1){
 #endif
   H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(active_d, active, sizeof(bool) * Total_Trace, cudaMemcpyHostToDevice));
-  cudaMemset(inf_index, 0, 1);
+ cudaMemset(inf_index, 0, sizeof(int));
   preprocess<<<4096,64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, p_index_d, active_d, inf_id, inf_index, c_index_d);
   H_ERR(cudaDeviceSynchronize());
 #ifdef DEBUG
@@ -277,7 +277,7 @@ int out_shape= outputs.sizes()[0];
   //printf("Shape: %d, trace: %d\n", out_shape, Total_Trace);
   //fwrite(outputs.data_ptr<float>(), sizeof(float), 3, outFile);
   //H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
-  update<<<4096,64>>>(rob_d,sq_d, output, inf_index, Total_Trace, o_d, iteration, W, index_all_gpu, active_d, inf_id);
+  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, o_d, iteration, W, index_all_gpu, active_d, inf_id, inf_index);
   H_ERR(cudaDeviceSynchronize());
 #ifdef DEBUG
   cout<<"Update done\n";
@@ -315,7 +315,7 @@ cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
 cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";
 cout << "Measured Time: " << measured_time / Instructions << "\n";
-cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
+//cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
 cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
 cout << "Model: " << argv[3] << " " << argv[4] << "\n";
