@@ -33,7 +33,7 @@
 #define ML_SIZE (TD_SIZE * CONTEXTSIZE)
 //#define COMBINED
 //#define DEBUG
-
+#define WARP
 
 typedef long unsigned Tick;
 typedef long unsigned Addr;
@@ -460,7 +460,7 @@ __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
     sum[0] += rob->curTick;
     //printf("T: %d, Tick: %lu\n", i, rob->curTick);
   }
-  //printf("~~~~~~~~~Instructions: %d, Batch: %d, Prediction: %lu ~~~~~~~~~\n", instructions,Total_Trace, sum[0]);
+  printf("~~~~~~~~~Instructions: %d, Batch: %d, Prediction: %lu ~~~~~~~~~\n", instructions,Total_Trace, sum[0]);
 }
 
 
@@ -680,13 +680,10 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   ROB *rob;
   SQ *sq;
   float *input_Ptr;
-#ifdef WARP
   index = warpID;
   Total = TotalWarp;
-#else
-  index = blockIdx.x;
-  Total = gridDim.x;
-#endif
+  //index = blockIdx.x;
+  //Total = gridDim.x;
   while (index < Total_Trace)
   {
     rob= &rob_d[index];
