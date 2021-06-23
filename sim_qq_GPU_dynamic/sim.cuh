@@ -134,7 +134,7 @@ struct Inst
    Read the partition binary file;
    Find each partition start,end,warmup and seperate indices;
  */
-void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end, int *p_index, int *s_index){
+void partition(const char data[], int part_count, int *parts, int *part_start, int *part_end, int *s_index,int W){
   FILE *file= fopen(data,"rb");
   int read= fread(parts,sizeof(p_index),part_count*2+2,file);
   //part_start[0]=0;
@@ -145,25 +145,35 @@ void partition(const char data[], int part_count, int *parts, int *part_start, i
      int index= 2*i; 
      part_start[i]= parts[index];	
 #ifdef WARMUP
-     p_index[i]= part_start[i];
-     part_start[i]= parts[index+1]; // min to min
-     //part_start[i]= part_start[i]-2;// min to two
+     s_index[i]= part_start[i];
+    part_start[i]= parts[index+1]; // min to min
+     part_start[i]= part_start[i]-W;// min to two
+     if(part_start[i]<0){part_start[i]=0;}
 #endif
      part_end[i]= parts[index+2];
      assert (part_start[i]<=part_end[i]);
 //#ifdef DEBUG
-     //printf("Index: %d, start: %d, p_index: %d, end: %d\n", i, part_start[i], p_index[i], part_end[i]);
-//#endif
+    if(i==8951){ 
+	    printf("Index: %d, start: %d, ressst_index: %d, end: %d\n", i, part_start[i], s_index[i], part_end[i]);
+    }
+	    //#endif
   }
 }
-
+/*
+struct Partition{
+    int N=2;
+    int p_start[N];
+    int p_index[N];
+    int p_end[N];
+};
+*/
 struct SQ {
   Inst insts[SQSIZE+1];
   int size= SQSIZE;
-  int head = 0;
-  int len = 0;
-  int tail = 0;
-  int sq_num = 0;
+  int head= 0;
+  int len= 0;
+  int tail= 0;
+  int sq_num= 0;
   __device__ int inc(int input) {
     if (input == SQSIZE)
       return 0;
@@ -508,7 +518,7 @@ __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
     ROB *rob= &rob_d[i];	  
 #ifdef WARMUP
     sum[0] += (rob->curTick - rob->curTick_d);
-    //printf("T: %d, Tick: %lu,Reduced: %lu final: %lu\n", i, rob->curTick, rob->curTick_d, (rob->curTick - rob->curTick_d));
+    printf("T: %d, Tick: %lu,Reduced: %lu final: %lu\n", i, rob->curTick, rob->curTick_d, (rob->curTick - rob->curTick_d));
 #else
     sum[0] += rob->curTick;
     //printf("T: %d, Tick: %lu\n", i, rob->curTick);
@@ -554,7 +564,7 @@ __device__ Tick min_(Tick a, Tick b)
 
 
 __global__ void
-update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int iteration, int W, int *index_all, bool *active_d, int *inf_id, int *inf_index)
+update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape, int *warmup_reset_index_d, int *current_index_d, bool *active_d, int *inf_id, int *inf_index)
 //update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -643,17 +653,18 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[1] = int_complete_lat;
     rob->insts[tail].train_data[2] = int_store_lat;
 #ifdef WARMUP
-    if ((iteration<W) && (index!=0)){}
-    //if(index_all[index]==p_index[index]){rob->curTick}
-    //else if((iteration>=Batch_size)&& (index==0)){ rob->curTick}
+    if ((current_index_d[index]<=warmup_reset_index_d[index]) && (index!=0)){
+	    if(index==8951){printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+    }
+    else if((current_index_d[index]>warmup_reset_index_d[index])  && (index==0)){}
 
 	//else { printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat); }
     //printf("Wramup\n");
     //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
-   //if(index<=1)
-   //{printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
+    else
+   if(index==8951){{printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}}
 #else
-    //printf("%d,%d,%d,%d,%d,%d,%d\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);
+    if(index==8951){printf("%d,%d,%d,%d,%d,%d,%d\n",index ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
 #endif
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
 #ifdef DEBUG
@@ -731,7 +742,7 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 
 
 __global__ void
-preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *p_index, bool *active_d, int *inf_id, int *inf_index, int *index_count)
+preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *warmup_reset_index, bool *active_d, int *inf_id, int *inf_index, int *current_index_d)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
   int warpID = TID / WARPSIZE;
@@ -742,37 +753,41 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   ROB *rob;
   SQ *sq;
   float *input_Ptr;
-#ifdef WARP
   index = warpID;
   Total = TotalWarp;
-#else
-  index = blockIdx.x;
-  Total = gridDim.x;
-#endif
+
   while (index < Total_Trace)
   {
-	//if (warpTID == 0){printf("Pre:Index: %d, active status: %d\n", index, active_d[index]);}
-    
+	if (warpTID == 0){
+		if(index==8951){printf("%d\n",index);}
+	  //{printf("Pre:Index: %d, active status: %d\n", index, active_d[index]);}
+    //if(index==8951){printf("Pre: %d,%d,%d,%d,%d,%d\n",Total_Trace,index,inf_id[index],active_d[index],current_index_d[index],warmup_reset_index[index]);}
+	} 
     if(active_d[index]==true){
-
        rob= &rob_d[index];
        sq= &sq_d[index];
-       Tick curTick = rob->curTick;
-       Tick lastFetchTick = rob->lastFetchTick;
+       Tick curTick= rob->curTick;
+       Tick lastFetchTick= rob->lastFetchTick;
        if (warpTID == 0){
 	    inf_id[index]= atomicAdd(&inf_index[0],1);
-	    index_count[index]+=1;
+	    if(index==8951){printf("Pre: %d,%d,%d,%d,%d,%d\n",Total_Trace,index,inf_id[index],active_d[index],current_index_d[index],warmup_reset_index[index]);}
+	    //current_index_d[index]+=1;
+	    //if(index==8951){printf("%d,%d,%d\n",index,inf_id[index],active_d[index]);}
+	    //printf("Pre:I:%d, C:%d,R: %d,T:%lu\n",index,current_index_d[index],warmup_reset_index[index],curTick);
 #ifdef WARMUP
-    if(index_count[index]==p_index[index]){
-     rob-> curTick_d= rob ->curTick;
-     //printf("Index: %d, P: %d, C: %d,Warmup completed.\n",index, p_index[index], index_count[index]);
+    if(current_index_d[index]==(warmup_reset_index[index]+1)){
+     rob->curTick_d= rob->curTick;
+     int value= rob->curTick;
+     //rob->curTick=0;
+     //if(index==4)
+     //{printf("Index: %d,C: %d,R: %d, curTick: %lu, Warmup completed.\n",index,current_index_d[index],warmup_reset_index[index], curTick);}
     }
 #endif
-	    }
+}
 input_Ptr= inputPtr + ML_SIZE * inf_id[index];   
 if (warpTID == 0){
       //printf("\n\n");
-               Inst *newInst = rob->add();
+         Inst *newInst = rob->add();
          memcpy(newInst, &insts[index], sizeof(Inst));
          //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     }
@@ -814,7 +829,7 @@ if (warpTID == 0){
     __syncwarp();
     index += Total;
    }
-      else {index += (gridDim.x * blockDim.x);}
+      else {index += Total;}
   }
 }
 
