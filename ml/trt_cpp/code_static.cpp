@@ -23,9 +23,10 @@ class Logger : public nvinfer1::ILogger
 public:
     void log(Severity severity, const char* msg) override {
         // remove this 'if' if you need more logged info
-	//if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) {
+	//if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) 
+	{
             std::cout << msg << "\n";
-//	}
+	}
     }    
 } gLogger;
 
@@ -58,7 +59,7 @@ size_t getSizeByDim(const nvinfer1::Dims& dims)
 
 // initialize TensorRT engine and parse ONNX model --------------------------------------------------------------------
 void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaEngine>& engine,
-                    TRTUniquePtr<nvinfer1::IExecutionContext>& context, int batch_size, int half)
+                    TRTUniquePtr<nvinfer1::IExecutionContext>& context, int batch_size, int prec)
 {
     TRTUniquePtr<nvinfer1::IBuilder> builder{nvinfer1::createInferBuilder(gLogger)};
     const auto explicitBatch = 1U << static_cast<uint32_t>(nvinfer1::NetworkDefinitionCreationFlag::kEXPLICIT_BATCH);
@@ -78,12 +79,21 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
     // allow TensorRT to use up to 1GB of GPU memory for tactic selection.
     config->setMaxWorkspaceSize(1ULL << 30);
     // use FP16 mode if possible
-    
-    if (builder->platformHasFastFp16() && half)
-    {
+    bool hasTf32 = builder->platformHasTf32();
+    if (hasTf32){printf("TF32 supported..");}
+    if (builder->platformHasFastFp16() && (prec==1)){
         printf("Half flag\n");
 	config->setFlag(nvinfer1::BuilderFlag::kFP16);
     }
+
+    if (builder->platformHasFastInt8() && (prec==2)){
+	//config->setFlag(nvinfer1::BuilderFlag::kFP16);
+	printf("Int8 flag");
+	builder->setInt8Mode(true);
+	builder->setInt8Calibrator(nullptr);
+	//config->setFlag(nvinfer1::BuilderFlag::kINT8);
+    }
+
     
     // we have only one image in batch
     builder->setMaxBatchSize(batch_size);
@@ -155,9 +165,10 @@ void printHelpInfo()
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2)
+    if (argc!= 5)
     {
-        std::cerr << "usage: " << argv[0] << " model.onnx \n";
+        std::cerr << "usage: " << argv[0] << " <model.onnx> <batch_size> <name> <precision> \n";
+
         return -1;
     }
       double inf = 0.0, inf_only= 0.0;
@@ -165,7 +176,7 @@ int main(int argc, char* argv[])
     int batch_size= atoi(argv[2]);
     std::string model_path(argv[1]);
     std::string name(argv[3]);
-    int half= atoi(argv[4]);
+    int prec= atoi(argv[4]);
     TRTUniquePtr< nvinfer1::ICudaEngine > engine{nullptr};
     TRTUniquePtr< nvinfer1::IExecutionContext > context{nullptr};
     //deseralizer(engine,context,model_path);
@@ -173,10 +184,7 @@ int main(int argc, char* argv[])
     std::vector<nvinfer1::Dims> input_dims;
     std::vector<nvinfer1::Dims> output_dims;
     char hal[10], mod[20];
-     if(half==1){
-        std:string hal("_half");
-    }
-    parseOnnxModel(model_path, engine, context, batch_size, half); 
+    parseOnnxModel(model_path, engine, context, batch_size, prec); 
     serializer(engine, name);
     printf("Max batch size for model: %d\n",engine->getMaxBatchSize());
     std::vector<void*> buffers(engine->getNbBindings());
