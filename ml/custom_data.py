@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from cfg import data_item_format, min_complete_lat, min_store_lat
+from cfg import data_item_format, min_complete_lat, min_store_lat, context_length, inst_length
 
 
 class MemoryMappedDataset(Dataset):
@@ -95,6 +95,59 @@ class QQDataset(Dataset):
         idx = self.start + batch_idx * self.batch_size + batch_offset
 
         x = np.copy(self.arr[idx])
+        y = np.copy(x[0:3])
+        y_cla = np.copy(y)
+        if self.stat is not None:
+            y_cla *= np.sqrt(self.stat[0:3])
+        y_cla = np.rint(y_cla)
+        y_cla[1] -= min_complete_lat
+        if y_cla[2] > 0:
+            y_cla[2] -= (min_store_lat - 1)
+        y_cla[y_cla > self.num_classes - 1] = self.num_classes - 1
+        x[0:3] = 0
+        x = torch.from_numpy(x.astype('f'))
+        y = torch.from_numpy(y.astype('f'))
+        y_cla = torch.from_numpy(y_cla.astype(int))
+        return x, y, y_cla
+
+
+class CompressedDataset(Dataset):
+
+    def __init__(self, file_name, rows, columns, start, end, stride=1, batch_size=1, num_classes=10, stat_file_name=None):
+        self.idx = np.memmap(file_name + '.idx', dtype=np.uint64,
+                             mode='r', shape=rows)
+        self.arr = np.memmap(file_name + '.dat', dtype=data_item_format,
+                             mode='r', shape=columns)
+        if (end - start) % (batch_size * stride) != 0:
+            raise AttributeError("Size is not aligned.")
+        self.start = start
+        self.stride = stride
+        self.batch_size = batch_size
+        self.num_classes = num_classes
+        self.size = (end - start) // stride
+        self.stat = None
+        if stat_file_name is not None:
+            stat_file = np.load(stat_file_name)
+            self.stat = np.copy(stat_file['all_var'])
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        # Find the batch index.
+        batch_idx = idx // self.batch_size
+        batch_offset = idx % self.batch_size
+        batch_idx *= self.stride
+        idx = self.start + batch_idx * self.batch_size + batch_offset
+
+        start_idx = self.idx[idx]
+        end_idx = self.idx[idx+1]
+        x = np.zeros(context_length*inst_length)
+        assert (end_idx - start_idx) % inst_length == 0 and end_idx - start_idx <= context_length*inst_length
+        x[0:end_idx-start_idx] = np.copy(self.arr[start_idx:end_idx])
         y = np.copy(x[0:3])
         y_cla = np.copy(y)
         if self.stat is not None:
