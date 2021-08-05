@@ -2,13 +2,12 @@ import sys
 import os
 import argparse
 import numpy as np
-from qq_format import *
-#from pk_format import *
+from rr_format import *
 
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)
 parser.add_argument('--end', type=int, default=0)
-parser.add_argument('--total-rows', type=int, default=0)
+parser.add_argument('--total-entries', type=int, default=0)
 parser.add_argument('--total-insts', type=int, default=0)
 parser.add_argument('--stats', default="")
 parser.add_argument('fname', nargs='*')
@@ -21,7 +20,7 @@ if len(args.fname) > 1:
     output = os.path.join(os.path.dirname(args.fname[0]), "totalall")
 idx_output = output + ".idx"
 output += ".dat"
-r = args.total_rows
+r = args.total_entries + 1
 w = args.total_insts * inst_length
 
 print("Make Q dataset ", output, ", start from", start, ", end with", end, ", shape is ", r, w, flush=True)
@@ -31,8 +30,8 @@ nfilled = 0
 cur_idx = 0
 bad_lines = 0
 bad_content = 0
-all_idx = np.memmap(idx_output, dtype=np.uint64, mode='w+', shape=r+1)
-all_feats = np.memmap(output, dtype=np.float32, mode='w+', shape=w)
+all_idx = np.memmap(idx_output, dtype=np.uint64, mode='w+', shape=r)
+all_feats = np.memmap(output, dtype=np.uint16, mode='w+', shape=w)
 all_idx[0] = 0
 
 if args.stats != "":
@@ -46,8 +45,8 @@ for i in range(len(args.fname)):
     print("read", fname, flush=True)
     with open(fname) as f:
         for line in f:
-            if nfilled >= r:
-                print("Find more lines than the input shape.")
+            if cur_idx >= r:
+                print("Find more lines than the input shape.", flush=True)
                 break
             if nlines < start:
                 nlines += 1
@@ -78,8 +77,8 @@ for i in range(len(args.fname)):
                     all_feats[nfilled, inst_length*j:inst_length*(j+1)] /= all_fac
 
             if nfilled == 0:
-                print("First sample:", all_feats[nfilled].shape, len(vals))
-                print(all_feats[nfilled], flush=True)
+                print("First sample:", length)
+                print(all_feats[nfilled:nfilled+length], flush=True)
             nfilled += length
             nlines += 1
             cur_idx += 1
