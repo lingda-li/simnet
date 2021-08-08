@@ -57,16 +57,16 @@ int main(int argc, char *argv[])
 {
   //printf("args count: %d\n", argc);
 #ifdef WARMUP
-  if (argc != 8)
+  if (argc != 9)
   {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <Total trace><# inst> <partition_bin> <W (addtitional warmup)>" << endl;
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <Total trace><# inst> <partition_bin> <W (addtitional warmup)> <threshold>" << endl;
     return 0;
     //int W= atoi(argv[6]);
   }
 #else
-  if (argc != 7)
+  if (argc != 8)
   {
-    cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <Total trace> <#Insts> <partition_bin>" << endl;
+    cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <Total trace> <#Insts> <partition_bin> <threshold>" << endl;
   return 0;
 }
 #endif
@@ -115,11 +115,19 @@ H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * ML_SIZE * Total_Trace));
 H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * o_d));
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 int W=0;
+int threshold;
 #ifdef WARMUP
 W= atoi(argv[7]);
+threshold= atoi(argv[8]);
+#else
+threshold= atoi(argv[7]);
 #endif
-int part_count= fsize(argv[6])/(sizeof(p_index)*2)-1; // counts total number of partitions from bin file
-int *parts= (int *)malloc(sizeof(int)*part_count*2); // allocates memory for partition file
+FILE *t_file= fopen(argv[6],"rb");
+if(!t_file){printf("Unable to read partitions");}
+int part_cols=3; 
+int part_count= fsize(argv[6])/(sizeof(p_index)*part_cols); // counts total number of partitions from bin file
+//printf("part_count: %d, ",part_count);
+int *parts= (int *)malloc(sizeof(int)*part_count*part_cols); // allocates memory for partition file
 int *part_start= (int *)malloc(sizeof(int)*part_count); // partition start
 int *part_end= (int *)malloc(sizeof(int)*part_count);   // partition end
 //int *partition_index= (int *)malloc(sizeof(int)*part_count);   // index for actual partition; same with part_start if no warmup 
@@ -131,6 +139,7 @@ H_ERR(cudaMalloc((void **)&current_index_d, sizeof(int) * part_count)); // index
 H_ERR(cudaMalloc((void **)&warmup_reset_index_d, sizeof(int) * part_count)); // subtrace reset index for GPU
 partition(argv[6], Total_Trace, parts, part_start, part_end, warmup_index, W);  // -----> Replace with part_count to go through all instructions
 Instructions= part_end[Total_Trace-1];
+//printf("Instructions:%llu\n",Instructions);
 float *trace;
 Tick *aux_trace;
 trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
@@ -156,12 +165,10 @@ for (int i = 0; i < Total_Trace; i++)
 #endif
   trace_all[i]= trace + offset * TRACE_DIM;
   aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
-  if(offset>Instructions) printf("i: %d, offset: %d, instr: %d\n",i,offset,Instructions);
+  if(offset>Instructions) printf("i: %d, offset: %llu, instr: %llu\n",i,offset,Instructions);
   assert (offset<=Instructions);
   //printf("Trace: %d, offset: %d\n",i,part_start[i]);
 }
-// printf("Allocated. \n");
-//return 0;
 float *default_val_d;
 Tick *curTick, *lastFetchTick;
 int *inf_index, *status;
@@ -189,7 +196,6 @@ H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float) * (TD_SIZE)));
 H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
 struct timeval total_start, total_end;
 int iteration = 0;
-gettimeofday(&total_start, NULL);
 double start_ = wtime();
 double red=0, pre=0, tr=0, inf=0, upd=0;
 FILE *pFile,*outFile;
@@ -205,10 +211,13 @@ cudaMemset(active_d, true, Total_Trace*sizeof(bool));
 memset(active,true,Total_Trace*sizeof(bool));
 H_ERR(cudaDeviceSynchronize());
 //int iteration=0;
+gettimeofday(&total_start, NULL);
+//cout<<"Started\n";
 while (completed!=1){
-  //if((iteration % 500)==0
-      	//{cout << "\nIteration: " << iteration++ << endl;}
+  if((iteration % 50)==0){
+	//cout << "Iteration: " << iteration++ << endl;
  //cout<< "*******************************************************\n";
+	}
 //if (iteration==11){break;} 
   double st = wtime();
   #pragma omp parallel for
@@ -220,7 +229,7 @@ while (completed!=1){
     index_all[i]+=1;
     if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],index_all[i]))
     {cout << "Error\n";}
-    if(i==8951){printf("\nR: %d,%d,%d,%d [inside]\n",i,active[i],index_all[i],part_end[i]);}
+    //if(i==8951){printf("\nR: %d,%d,%d,%d [inside]\n",i,active[i],index_all[i],part_end[i]);}
     //index_all[i]+=1;
     //printf("%d\n",index_all[i]);
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
@@ -230,27 +239,21 @@ while (completed!=1){
     }
     else{active[i]=false;}
   }
-#ifdef DEBUG
-  printf("Inst read\n"); 
-#endif
+  //printf("Inst read,"); 
   double check1 = wtime();
   red+= (check1-st);
     H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
     double check2 = wtime();
   tr+= (check2-check1);
-#ifdef DEBUG
-  cout<<"Data transferred\n";
-#endif
+  //cout<<" Data transferred,";
   H_ERR(cudaMemcpy(current_index_d, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
   H_ERR(cudaMemcpy(active_d, active, sizeof(bool) * Total_Trace, cudaMemcpyHostToDevice));
- cudaMemset(inf_index, 0, sizeof(int));
-H_ERR(cudaDeviceSynchronize());
- cout<<"Preprocess\n";
+  cudaMemset(inf_index, 0, sizeof(int));
+  H_ERR(cudaDeviceSynchronize());
+  //cout<<" Preprocess,";
   preprocess<<<4096,64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, warmup_reset_index_d, active_d, inf_id, inf_index, current_index_d);
   H_ERR(cudaDeviceSynchronize());
-#ifdef DEBUG
-  cout<<"Preprocess done \n"<<endl; 
-#endif
+  //cout<<" Preprocess done,"; 
   double check3= wtime();
     H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
   //fwrite(inp+ML_SIZE, sizeof(float), ML_SIZE, pFile);
@@ -268,21 +271,16 @@ H_ERR(cudaDeviceSynchronize());
   double check4= wtime();
   inf+= (check4-check3);
   //cout<<"Output size: "<< outputs.sizes()[0]<<endl;
-int out_shape= outputs.sizes()[0];
-#ifdef DEBUG
-  cout<<"Inference done\n";
   int out_shape= outputs.sizes()[0];
-  printf("Shape: %d, trace: %lu\n", out_shape, Total_Trace);
-#endif
+  //cout<<" Inference done,";
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float) * Total_Trace*o_d, cudaMemcpyHostToDevice));
   //printf("Shape: %d, trace: %d\n", out_shape, Total_Trace);
   //fwrite(outputs.data_ptr<float>(), sizeof(float), 3, outFile);
   //H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
+  //cout<<" copied,";
   update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, o_d, warmup_reset_index_d, current_index_d, active_d, inf_id, inf_index);
   H_ERR(cudaDeviceSynchronize());
-#ifdef DEBUG
-  cout<<"Update done\n";
-#endif
+  //cout<<" Update done\n";
   double check5=wtime();
   upd+=(check5-check4);
   // check for completion
@@ -301,17 +299,30 @@ double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
 Tick *total_tick;
+
+cout<<argv[0]<<",";
+string p(argv[3]);
+string d(argv[2]);
+size_t found= p.find_last_of("/\\");
+//size_t found1=p.find_last_of("_");
+//cout<<found1<<endl;
+cout<<p.substr(found+1)<<",";
+found= d.find_last_of("/\\");
+cout<< d.substr(found+1) <<",";
+printf("%llu,%llu,%d,%d,",Instructions,Total_Trace,W,iteration);
+
 H_ERR(cudaMalloc((void **)&total_tick, sizeof(Tick)));
 result<<<1, 1>>>(rob_d, Total_Trace, Instructions, total_tick);
 H_ERR(cudaDeviceSynchronize());
 //H_ERR(cudaMemcpy(&total_tick[i], total_tick_d[i], sizeof(Tick), cudaMemcpyDeviceToHost));
 double total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
+cout <<total_time<<"," <<threshold<<endl;
 //cout << "Total time: " << (end_ - start_) << endl;
 #ifdef RUN_TRUTH
 cout << "Truth"
      << "\n";
 #endif
-//return 0;
+return 0;
 cout << Instructions << " instructions finish by " << (iteration) << " iterations.\n";
 cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";

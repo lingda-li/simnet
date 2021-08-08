@@ -200,7 +200,7 @@ aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 int Batch_size = Instructions / Total_Trace;
 
 if(Instructions%Total_Trace!=0){
-        printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
+        //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
         Batch_size= Batch_size +1;
         unsigned long long int new_instr=  (Batch_size+1)*Total_Trace;
         trace = (float *)malloc(TRACE_DIM * new_instr * sizeof(float));
@@ -210,25 +210,15 @@ if(Instructions%Total_Trace!=0){
                 memcpy(&trace[index * TRACE_DIM], zeros, sizeof(float)*TRACE_DIM);
                 memcpy(&aux_trace[index * AUX_TRACE_DIM], zeros, sizeof(Tick)*AUX_TRACE_DIM);
                 index+=1;
-                //trace+= TRACE_DIM; aux_trace+= AUX_TRACE_DIM;
-        }
+         }
 }
 else {
         trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
         aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 }
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
-//int Batch_size = Instructions / Total_Trace;
-//cout << " Batch: " << Batch_size << endl;
-//cout<<"Parameters read..\n";
 //omp_set_num_threads(1);
 double measured_time = 0.0;
-Tick Case0 = 0;
-Tick Case1 = 0;
-Tick Case2 = 0;
-Tick Case3 = 0;
-Tick Case4 = 0;
-Tick Case5 = 0;
 int *fetched_inst_num = new int[Total_Trace];
 int *fetched = new int[Total_Trace];
 int *ROB_flag = new int[Total_Trace];
@@ -248,13 +238,12 @@ for (int i = 0; i < Total_Trace; i++)
   long long int offset = i * (Batch_size);
 //cout<<"offset: " << offset << endl;
 #ifdef WARMUP
-  //if(i!=0){
     offset= offset - W;
     if(offset<0){offset=0;}
     //cout<< "W: "<<W<<", Index: "<< i <<", Offset: "<< offset << endl; 
 #endif
-  if(offset>Instructions)printf("Index: %d, offset: %d\n",i,offset);
-  assert(offset<=Instructions);
+  //if(offset>Instructions)printf("Index: %d, offset: %d\n",i,offset);
+  //assert(offset<=Instructions);
   //assert(offset>=0);
   index_all[i]= offset;
   //cout<< "W: "<<W<<", Index: "<< i <<",Start: "<< offset << "End: "<<offset + Batch_size + W << endl;
@@ -301,16 +290,11 @@ while (iteration < total_iterations){
   #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
-    //printf("%d\n",i);
     index_all[i]+=1;
-    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],0))
+    if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],index_all[i]))
     {cout << "Error\n";}
-    //index_all[i]+=1;
-    //printf("%d\n",index_all[i]);
     trace_all[i] += TRACE_DIM; aux_trace_all[i] += AUX_TRACE_DIM;
-    //printf("Trace: %d, read\n",i);
   }
-  //printf("Inst read\n"); 
   double check1 = wtime();
   red+= (check1-st);
   H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
@@ -360,11 +344,11 @@ string p(argv[3]);
 string d(argv[2]);
 size_t found= p.find_last_of("/\\");
 //size_t found1=p.find_last_of("_");
-//cout<<found1<<endl;
+cout<<argv[0]<<",";
 cout<<p.substr(found+1)<<",";
 found= d.find_last_of("/\\");
 cout<< d.substr(found+1) <<",";
-printf("%llu,%llu,%d,",Instructions,Total_Trace,W);
+printf("%llu,%llu,%d,%d,",Instructions,Total_Trace,W,iteration);
 result<<<1, 1>>>(rob_d, Total_Trace, Instructions, total_tick);
 H_ERR(cudaDeviceSynchronize());
 //H_ERR(cudaMemcpy(&total_tick[i], total_tick_d[i], sizeof(Tick), cudaMemcpyDeviceToHost));
@@ -377,7 +361,7 @@ cout << "Time: " << total_time << "\n";
 cout << "MIPS: " << Instructions / total_time / 1000000.0 << "\n";
 cout << "USPI: " << total_time * 1000000.0 / Instructions << "\n";
 cout << "Measured Time: " << measured_time / Instructions << "\n";
-cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
+//cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3 << " " << Case4 << " " << Case5 << "\n";
 cout << "Trace: " << argv[1] << "\n";
 #ifdef CLASSIFY
 cout << "Model: " << argv[3] << " " << argv[4] << "\n";
