@@ -23,7 +23,6 @@ for i in range(1, len(sys.argv)):
     print("read", fname, flush=True)
     with open(fname) as f:
         for line in f:
-            print("Have checked", nlines, flush=True)
             try:
                 vals = [int(s) for s in line.rstrip().split(' ')]
             except:

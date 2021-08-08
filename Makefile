@@ -9,3 +9,7 @@ pc:
 pk:
 	rm ml/cfg.py
 	cd ml; ln -s cfg_pk.py cfg.py
+
+rr:
+	rm ml/cfg.py
+	cd ml; ln -s cfg_rr.py cfg.py
