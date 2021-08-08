@@ -1017,6 +1017,7 @@ class InsLSTM(nn.Module):
     def forward(self, src):
         # reverse input order?
         src = src.view(-1, context_length, inst_length)
+        src = torch.flip(src, [1])
         x = self.inst_embed(src)
         x = x.transpose(0, 1)
         x, _ = self.lstm(x)
