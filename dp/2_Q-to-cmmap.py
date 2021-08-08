@@ -9,7 +9,6 @@ parser.add_argument('--start', type=int, default=0)
 parser.add_argument('--end', type=int, default=0)
 parser.add_argument('--total-entries', type=int, default=0)
 parser.add_argument('--total-insts', type=int, default=0)
-parser.add_argument('--stats', default="")
 parser.add_argument('fname', nargs='*')
 args = parser.parse_args()
 
@@ -33,12 +32,6 @@ bad_content = 0
 all_idx = np.memmap(idx_output, dtype=np.uint64, mode='w+', shape=r)
 all_feats = np.memmap(output, dtype=np.uint16, mode='w+', shape=w)
 all_idx[0] = 0
-
-if args.stats != "":
-    print('Load stats file %s.' % args.stats)
-    fs = np.load(args.stats)
-    all_var = fs['all_var']
-    all_fac = np.sqrt(all_var)
 
 for i in range(len(args.fname)):
     fname = args.fname[i]
@@ -70,12 +63,6 @@ for i in range(len(args.fname)):
                 continue
 
             all_feats[nfilled:nfilled+length] = np.array(vals)
-            all
-            if args.stats != "":
-                inst_num = int(len(vals) / inst_length)
-                for j in range(inst_num):
-                    all_feats[nfilled, inst_length*j:inst_length*(j+1)] /= all_fac
-
             if nfilled == 0:
                 print("First sample:", length)
                 print(all_feats[nfilled:nfilled+length], flush=True)
@@ -89,6 +76,7 @@ for i in range(len(args.fname)):
             if cur_idx % 5000000 == 0:
                 all_feats.flush()
                 all_idx.flush()
+                assert all_idx[cur_idx] == nfilled
                 print("Have filed", cur_idx, nfilled, flush=True)
 
 all_feats.flush()

@@ -113,11 +113,11 @@ class QQDataset(Dataset):
 
 class CompressedDataset(Dataset):
 
-    def __init__(self, file_name, rows, columns, start, end, stride=1, batch_size=1, num_classes=10, stat_file_name=None):
+    def __init__(self, file_name, rows, insts, start, end, stride=1, batch_size=1, num_classes=10, stat_file_name=None):
         self.idx = np.memmap(file_name + '.idx', dtype=np.uint64,
                              mode='r', shape=rows)
-        self.arr = np.memmap(file_name + '.dat', dtype=data_item_format,
-                             mode='r', shape=columns)
+        self.arr = np.memmap(file_name + '.dat', dtype=np.uint16,
+                             mode='r', shape=insts*inst_length)
         if (end - start) % (batch_size * stride) != 0:
             raise AttributeError("Size is not aligned.")
         self.start = start
@@ -138,15 +138,17 @@ class CompressedDataset(Dataset):
             idx = idx.tolist()
 
         # Find the batch index.
-        batch_idx = idx // self.batch_size
-        batch_offset = idx % self.batch_size
-        batch_idx *= self.stride
-        idx = self.start + batch_idx * self.batch_size + batch_offset
+        if self.stride != 1:
+            batch_idx = idx // self.batch_size
+            batch_offset = idx % self.batch_size
+            batch_idx *= self.stride
+            idx = batch_idx * self.batch_size + batch_offset
+        idx += self.start
 
         start_idx = self.idx[idx]
         end_idx = self.idx[idx+1]
-        x = np.zeros(context_length*inst_length)
         assert (end_idx - start_idx) % inst_length == 0 and end_idx - start_idx <= context_length*inst_length
+        x = np.zeros(context_length*inst_length)
         x[0:end_idx-start_idx] = np.copy(self.arr[start_idx:end_idx])
         y = np.copy(x[0:3])
         y_cla = np.copy(y)
@@ -162,3 +164,31 @@ class CompressedDataset(Dataset):
         y = torch.from_numpy(y.astype('f'))
         y_cla = torch.from_numpy(y_cla.astype(int))
         return x, y, y_cla
+
+
+class CombinedDataset(Dataset):
+
+    def __init__(self, start, end, num_classes=10):
+        self.size = end - start
+        if self.size % 3 != 0 or start % 3 != 0:
+            raise AttributeError("Size is not aligned.")
+        size = self.size // 3
+        start = start // 3
+        self.dat0 = CompressedDataset("data_spec_robreg/p128r120/all.qqu", 81939571, 4304420921, start, start + size, num_classes=num_classes)
+        self.dat1 = CompressedDataset("data_spec_robreg/p128r80/all.qqu", 80764702, 4190464494, start, start + size, num_classes=num_classes)
+        self.dat2 = CompressedDataset("data_spec_robreg/p128r40/all.qqu", 71433975, 3456072209, start, start + size, num_classes=num_classes)
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        sub_idx = idx // 3
+        if idx % 3 == 0:
+            item = self.dat0.__getitem__(sub_idx)
+            return item[0], item[1], item[2], torch.tensor([2.])
+        elif idx % 3 == 1:
+            item = self.dat1.__getitem__(sub_idx)
+            return item[0], item[1], item[2], torch.tensor([1.])
+        else:
+            item = self.dat2.__getitem__(sub_idx)
+            return item[0], item[1], item[2], torch.tensor([0.])

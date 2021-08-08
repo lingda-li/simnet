@@ -141,9 +141,17 @@ def get_inst_type(vals, n, fs=None, use_mean=False):
     return get_inst_field(vals, n, 4, fs, use_mean)
 
 
-def profile_model(model):
+def profile_model(model, para=False):
     print("Model info:")
+    if para:
+        def input_constructor(res):
+            x = torch.ones(()).new_empty((1, *res))
+            para = torch.ones(()).new_empty((1, 1))
+            return {'x': x, 'para': para}
+        constructor = input_constructor
+    else:
+        constructor = None
     macs, params = get_model_complexity_info(model, (context_length, inst_length), as_strings=True,
-                                             print_per_layer_stat=True, verbose=True)
+                                             input_constructor=constructor, print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
