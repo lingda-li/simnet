@@ -330,8 +330,7 @@ int main(int argc, char *argv[]) {
     default_val[i] = default_val[i % TD_SIZE];
   at::Tensor input = torch::ones({1, ML_SIZE});
   float *inputPtr = input.data_ptr<float>();
-  std::vector<float> para_vec = {rob_para};
-  at::Tensor para_input = torch::tensor(para_vec);
+  at::Tensor para_input = torch::full({1, 1}, rob_para);
   std::vector<torch::jit::IValue> inputs;
   at::Tensor output;
 #ifdef CLASSIFY
