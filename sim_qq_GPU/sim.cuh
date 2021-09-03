@@ -34,13 +34,31 @@
 //#define COMBINED
 //#define DEBUG
 #define WARP
-
+//#define TRACK
 typedef long unsigned Tick;
 typedef long unsigned Addr;
 float default_val[ML_SIZE];
 float zeros[TD_SIZE];
 
 __device__ __host__ Addr getLine(Addr in) { return in & ~0x3f; }
+
+
+
+  __device__ void copier(float *destination, float *source, int size)
+  {
+    int warpTID = threadIdx.x % WARPSIZE;
+    int i=warpTID;
+    while (i<size)
+    {
+      
+      destination[i]= source[i];
+      i+=WARPSIZE;
+      //printf("T: %d, source: %.2f, destination: %.2f\n",warpTID,source[i],destination[i]);
+    }
+  }
+
+
+
 
 struct Inst
 {
@@ -108,8 +126,13 @@ struct Inst
     for (int i = 0; i < 3; i++)
       iwalkAddr[i] = aux_trace[4 + i];
     for (int i = 0; i < 3; i++)
-      dwalkAddr[i] = aux_trace[7 + i]; 
-    //printf("%.1f,%.1f,%.1f,%.1f,",train_data[3],train_data[4],train_data[5],train_data[6]);
+      dwalkAddr[i] = aux_trace[7 + i];
+    //printf("%d,",index);
+    //{printf("%d,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n",index,train_data[3],train_data[4],train_data[5],train_data[6],train_data[18],train_data[19]);}
+    for (int i=3;i<19;i++){
+	  //printf("%.1f,",train_data[i]);
+    }
+    //pr`intf("\n");
     return true;
   }
 };
@@ -217,8 +240,10 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
         }
       insts[context].train_data[DPAGEC_BIT] = (float)conflict;
       int poss= atomicAdd(&num[W], 1);
-      //memcpy(input + TD_SIZE * poss, insts[context].train_data, sizeof(float) * TD_SIZE);
-       memcpy(&input[poss*TD_SIZE],&insts[context].train_data,  sizeof(float)*TD_SIZE);
+      memcpy(&input[poss*TD_SIZE],&insts[context].train_data,  sizeof(float)*TD_SIZE);
+      float *d_p= input + poss*TD_SIZE;
+      float *s_p= insts[context].train_data;
+      //copier(d_p,s_p, TD_SIZE);
       i+= WARPSIZE;
     }
     sq_num= num[W];
@@ -370,7 +395,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     __syncwarp();
     assert(!is_empty());
     //assert(&new_inst == &insts[dec(tail)]);
-    __shared__ int num[2];
+    __shared__ int num[4];
     int length= len - 1;
     
     //printf("make %p \n",&new_inst);   
@@ -380,15 +405,26 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     Addr addrEnd = new_inst.addrEnd;	
     Addr iwalkAddr[3], dwalkAddr[3];
     for (int i = 0; i < 3; i++) {
+	          //num[i]=0;
+	          iwalkAddr[i] = new_inst.iwalkAddr[i];
+		        dwalkAddr[i] = new_inst.dwalkAddr[i];
+			    }
+    /*
+    int k=warpTID;
+    //int poss;
+    for (k; k < 3; k+=WARPSIZE) {
       //num[i]=1;
       //printf("I %d\n",i);
-      iwalkAddr[i] = new_inst.iwalkAddr[i];
-      dwalkAddr[i] = new_inst.dwalkAddr[i];
+      iwalkAddr[k] = new_inst.iwalkAddr[k];
+      dwalkAddr[k] = new_inst.dwalkAddr[k];
     }
+    */
     num[W]=1;
+    //poss=1;
     //printf("Starting\n");
    if(warpTID==0){memcpy(inputs, insts[dec(tail)].train_data, sizeof(float)*TD_SIZE);}
     __syncwarp();
+   //int i = 0;
    int i = warpTID;
    while (i < length)
     {
@@ -396,6 +432,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
       context = (context >= 0) ? context : context + ROBSIZE + 1;
       //printf("Context: %d\n",context);
       // Update context instruction bits.
+//if(warpTID==0){
       insts[context].train_data[ILINEC_BIT] = insts[context].pc == pc ? 1.0 : 0.0;
        int conflict = 0;
        for (int j = 0; j < 3; j++){
@@ -420,11 +457,19 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
       #ifdef DEBUG
       printf("context: %d,ilinec: %.2f,ipagec: %.2f,daddr: %.2f,dlinec: %.2f,dpagec: %.2f\n",context,insts[context].train_data[ILINEC_BIT],insts[context].train_data[IPAGEC_BIT],insts[context].train_data[DADDRC_BIT],insts[context].train_data[DLINEC_BIT],insts[context].train_data[DPAGEC_BIT]);
 	#endif
-      int poss= atomicAdd(&num[W], 1);
+      int poss= atomicAdd(&num[W], 1); 
+      //}
+     // __syncwarp();
       //printf("Context: %d, poss: %d\n",context,poss);
       memcpy(&inputs[poss*TD_SIZE],&insts[context].train_data,  sizeof(float)*TD_SIZE);
+      float *d_p= inputs + poss*TD_SIZE;
+      float *s_p= insts[context].train_data;
+      //copier(d_p,s_p, TD_SIZE);
+      
       //{printf("Poss: %d\n",poss);}
       i += WARPSIZE;
+      //poss+=1;
+      //i+=1;
     }
     __syncwarp();
        //printf("Here. 3\n");
@@ -454,6 +499,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
 __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
 {
   sum[0]=0;
+  //printf("\n");
   for (int i = 0; i < Total_Trace; i++)
   {
     //printf("I: %d\n",i);
@@ -470,7 +516,7 @@ __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
     }
 #else
     sum[0] += rob->curTick;
-    //printf("T: %d, Tick: %lu\n", i, rob->curTick);
+    if(rob->curTick>100000)printf("T: %d, Tick: %lu\n", i, rob->curTick);
 #endif
   }
   printf("%llu,",sum[0]);
@@ -520,6 +566,8 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 //update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int shape)
 {
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
+  //if (TID==0){printf("Update started\n");}
+  __syncthreads();
   int index = TID;
   ROB *rob; SQ *sq;
   while (index < Total_Trace)
@@ -600,20 +648,27 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[0] = -int_fetch_lat;
     rob->insts[tail].train_data[1] = int_complete_lat;
     rob->insts[tail].train_data[2] = int_store_lat;
+
+
 #ifdef WARMUP
     if ((iteration<W) && (index!=0)){
-	    if(index==8434){printf("%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);
-    }}
-    else if((iteration>=Batch_size)&& (index==0)){
-	    printf("%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);
+	    //{printf("%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
     }
+    
+    else if((iteration>=Batch_size) && (index==0)){
+	    //printf("%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);
+    }
+   
 
 else {
-   if(index==8434){printf("%d,%d,%d,%d,%d,%d,%d, %lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}}
-#else
-    if(index==8434){printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);}
+    {printf("%d,%d,%d,%d,%d,%d,%d, %lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+    }
 #endif
+
+    //{printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);}
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
+    //if((index_all[index]> 40271870) && (index_all[index]<40271880))
+    //{printf(",%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
     rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
     rob->insts[tail].completeTick = rob->curTick + int_fetch_lat + int_complete_lat + 1;
     rob->lastFetchTick = rob->curTick;
@@ -647,22 +702,26 @@ else {
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
+      //printf("%d,1\n",index_all[index]);
       //printf("case 1 cur = %lu\n",rob->curTick);
     }
     else if (rob->curTick < nextFetchTick)
     {
       Tick nextCommitTick= max_(rob->getHead()->completeTick, rob->curTick + 1);
       rob->curTick= min_(nextCommitTick, nextFetchTick);
-       //printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
+      //printf("%d,2\n",index_all[index]);
+      //printf("case 2 cur = %lu, nextcommit= %lu\n",rob->curTick, nextCommitTick);
     }
     else if (rob->is_full())
     {
       rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
-      //printf("case 3 cur = %lu\n",rob->curTick);
+      //printf("%d,3\n",index_all[index]);
+	//printf("case 3 cur = %lu\n",rob->curTick);
     }
     else{
 	rob->curTick =  max_(rob->getHeadTick(), rob->curTick + 1);
 	//printf("case 4 cur = %lu\n",rob->curTick);
+	//printf("%d,4\n",index_all[index]);
     }
     int_fetch_lat= 0;
     //printf("nextFetch: %lu\n", nextFetchTick);
@@ -680,16 +739,20 @@ else {
     } while (!(rob->curTick >=nextFetchTick) || rob->is_full());
     index += (gridDim.x * blockDim.x);
   }
+   //if (TID==0){printf("Update completed\n");}
+     __syncthreads();
 }
 
 
 
 __global__ void
 preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *index_all, int iteration, int W, int Batch_size)
+//preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr,  int *status, int Total_Trace)
 {
-  //if(TID==0) {printf("preprocess started.. \n");}
+  
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
-  //if(TID==0) {printf("preprocess started.. \n");}
+   //if (TID==0){printf("Update started\n");}
+   //  __syncthreads();
   int warpID = TID / WARPSIZE;
   int warpTID = TID % WARPSIZE;
   int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
@@ -711,8 +774,8 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     rob= &rob_d[index];
     sq= &sq_d[index];
 #ifdef WARMUP
-      if ((iteration==W) && (index!=0))
-	 {rob->curTick_d= rob->curTick;}
+      if ((iteration==W) && (index!=0)){ // Change W to batch_size??
+	 rob->curTick_d= rob->curTick;}
 
       if ((iteration==Batch_size) && (index==0))
 	  {rob->curTick_d= rob->curTick;}
@@ -747,8 +810,13 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     // copy default values
     if(num < CONTEXTSIZE && warpTID==0)
     {
-       memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
-    //printf("default value copied.. \n");
+     memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
+     float *d_p= input_Ptr+num*TD_SIZE;
+     float *s_p= default_val+num*TD_SIZE;
+     //copier(d_p,s_p, (CONTEXTSIZE-num)*TD_SIZE);
+ 
+       
+       //printf("default value copied.. \n");
     }
 #ifdef DEBUG
     if (warpTID == 0)

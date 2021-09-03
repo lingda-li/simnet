@@ -160,9 +160,7 @@ for (int i = 0; i < Total_Trace; i++)
 {
   unsigned long long int offset = part_start[i];
   index_all[i]= offset;
-#ifdef DEBUG
-  cout<< " Index: "<< i <<", Offset: "<< offset << endl;
-#endif
+  //cout<< " Index: "<< i <<", Offset: "<< offset << endl;
   trace_all[i]= trace + offset * TRACE_DIM;
   aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
   if(offset>Instructions) printf("i: %d, offset: %llu, instr: %llu\n",i,offset,Instructions);

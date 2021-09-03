@@ -198,7 +198,7 @@ aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 
 
 int Batch_size = Instructions / Total_Trace;
-
+//printf("Batchsize: %d\n",Batch_size);
 if(Instructions%Total_Trace!=0){
         //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
         Batch_size= Batch_size +1;
@@ -232,11 +232,12 @@ int W=0;
 #ifdef WARMUP
 W= atoi(argv[6]);
 #endif
-#pragma omp parallel for
+//#pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
   long long int offset = i * (Batch_size);
 //cout<<"offset: " << offset << endl;
+cout<< "W: "<<W<<", Index: "<< i <<" ,start: "<< offset << " ,warmup: "<< offset-W<< " ,End: "<<(offset + Batch_size) << endl;
 #ifdef WARMUP
     offset= offset - W;
     if(offset<0){offset=0;}
@@ -246,7 +247,7 @@ for (int i = 0; i < Total_Trace; i++)
   //assert(offset<=Instructions);
   //assert(offset>=0);
   index_all[i]= offset;
-  //cout<< "W: "<<W<<", Index: "<< i <<",Start: "<< offset << "End: "<<offset + Batch_size + W << endl;
+  //cout<< "W: "<<W<<", Index: "<< i <<",Start: "<< offset <<" ,warmup: "<<offset + W << "End: "<<offset + Batch_size + W << endl;
   trace_all[i]= trace + offset * TRACE_DIM;
   aux_trace_all[i]= aux_trace + offset * AUX_TRACE_DIM;
 }
@@ -279,7 +280,7 @@ gettimeofday(&total_start, NULL);
 double start_ = wtime();
 double red=0,pre=0, tr=0,inf=0,upd=0;
 FILE *pFile,*outFile;
-//pFile= fopen ("libcustom.bin", "wb");
+pFile= fopen ("libcustom.bin", "wb");
 //outFile= fopen("pred.bin", "wb");
 //printf("Simulation started.. \n");
 int total_iterations= Batch_size + W;
@@ -302,12 +303,12 @@ while (iteration < total_iterations){
   tr+= (check2-check1);
   //cout<<"Data transferred\n";
   H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
-  preprocess<<<4096, 64>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu, iteration, W, Batch_size);
+  preprocess<<<4096, 32>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu, iteration, W, Batch_size);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
-  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*Total_Trace, cudaMemcpyDeviceToHost));
-  //fwrite(inp+ML_SIZE, sizeof(float), ML_SIZE, pFile);
+  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*2, cudaMemcpyDeviceToHost));
+  fwrite(inp+ML_SIZE, sizeof(float), ML_SIZE, pFile);
   //printf("Input:\n");
   //display(inp, 51,4);
   pre+= (check3-check2);
@@ -325,14 +326,14 @@ while (iteration < total_iterations){
   //cout<<"Inference done \n";
   int out_shape= outputs.sizes()[1];
   H_ERR(cudaMemcpy(output, outputs.data_ptr<float>(), sizeof(float)*Total_Trace*out_shape, cudaMemcpyHostToDevice));
-  update<<<4096,64>>>(rob_d,sq_d, output, status, Total_Trace, out_shape, iteration, W, Batch_size, index_all_gpu);
+  update<<<4096,32>>>(rob_d,sq_d, output, status, Total_Trace, out_shape, iteration, W, Batch_size, index_all_gpu);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Update done\n";
   double check5=wtime();
   upd+=(check5-check4);
   iteration++;
 }
-//fclose(pFile);
+fclose(pFile);
 //fclose(outFile);
 //printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
 double end_ = wtime();

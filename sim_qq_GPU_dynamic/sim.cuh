@@ -158,13 +158,13 @@ void partition(const char data[], int part_count, int *parts, int *part_start, i
      if(part_start[i]<0){part_start[i]=0;}
 #endif
      part_end[i]= parts[index+2];
-//if(part_start[i]>=part_end[i]){printf("Index: %d\n",i);}
+     //if(part_start[i]>=part_end[i]){printf("Index: %d\n",i);}
      //assert (part_start[i]<part_end[i]);
      int len = part_end[i]- part_start[i];
      //assert(len>0);
-    { 
+     { 
 	//printf("Index: %d, start: %d, ressst_index: %d, end: %d, len: %d\n", i, part_start[i], s_index[i], part_end[i], len);
-    }
+     }
   }
   fclose(file);
 }
@@ -656,17 +656,20 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     rob->insts[tail].train_data[0] = -int_fetch_lat;
     rob->insts[tail].train_data[1] = int_complete_lat;
     rob->insts[tail].train_data[2] = int_store_lat;
-/*
+    
+
 #ifdef WARMUP
     if ((current_index_d[index]<=warmup_reset_index_d[index]) && (index!=0)){
-	    if(index==0){printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+	    //{printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
     }
-    else if((current_index_d[index]>warmup_reset_index_d[index])  && (index==0)){}
+    else if((current_index_d[index]>warmup_reset_index_d[index])  && (index==0)){
+	    {printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu \n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+}
 	//else { printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat); }
     //printf("Wramup\n");
     //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
     else
-   if(index==0){{printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}}
+   {{printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}}
 #else
     //if(index==8951){printf("%d,%d,%d,%d,%d,%d,%d\n",index ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
 #endif
@@ -675,8 +678,8 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
     
 printf("Index: %d, offset: %d, Fetch: %.4f, Finish: %.4f, Rob0: %.2f, Rob1: %.2f, Rob2: %.2f, Rob3: %.2f\n", index, rob->tail, output[offset + 0], output[offset + 1], rob_pointer[0], rob_pointer[1], rob_pointer[2], rob_pointer[3]);
 #endif
-*/
-{printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);}
+
+//{printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);}
 rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
     rob->insts[tail].completeTick = rob->curTick + int_fetch_lat + int_complete_lat + 1;
     rob->lastFetchTick = rob->curTick;
