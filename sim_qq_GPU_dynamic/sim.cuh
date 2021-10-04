@@ -163,7 +163,7 @@ void partition(const char data[], int part_count, int *parts, int *part_start, i
      int len = part_end[i]- part_start[i];
      //assert(len>0);
      { 
-	//printf("Index: %d, start: %d, ressst_index: %d, end: %d, len: %d\n", i, part_start[i], s_index[i], part_end[i], len);
+	printf("Index: %d, start: %d, ressst_index: %d, end: %d, len: %d\n", i, part_start[i], s_index[i], part_end[i], len);
      }
   }
   fclose(file);
@@ -242,7 +242,7 @@ __device__ int make_input_data(float *input, Tick tick, Inst &new_inst) {
     Addr addr = new_inst.addr;
     Addr addrEnd = new_inst.addrEnd;
     Addr iwalkAddr[3], dwalkAddr[3];
-    int __shared__ num[2];
+    int __shared__ num[4];
     for (int i = 0; i < 3; i++) {
       //num[i]=0;
       iwalkAddr[i] = new_inst.iwalkAddr[i];
@@ -431,7 +431,7 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
     __syncwarp();
     assert(!is_empty());
     //assert(&new_inst == &insts[dec(tail)]);
-    __shared__ int num[2];
+    __shared__ int num[4];
     int length= len - 1;
     
     //printf("make %p \n",&new_inst);   
@@ -663,15 +663,17 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 	    //{printf("U: %d,%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
     }
     else if((current_index_d[index]>warmup_reset_index_d[index])  && (index==0)){
-	    {printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu \n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+	    //{printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu \n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
 }
-	//else { printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat); }
-    //printf("Wramup\n");
-    //printf("%d,%d,%d,%d\n", index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat);
     else
-   {{printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}}
+   {
+   //{printf("%d,%d,%d,%d,%d,%d,%d,%d,%lu\n",index,inf_id[index] ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+   printf("%d,%d,%d,%d,%d\n",index ,current_index_d[index],-int_fetch_lat,rob->rob_num,rob->curTick);
+   }
 #else
-    //if(index==8951){printf("%d,%d,%d,%d,%d,%d,%d\n",index ,current_index_d[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num);}
+    { 
+    printf("%d,%d,%d,%d,%d\n",index ,current_index_d[index],-int_fetch_lat,rob->rob_num,rob->curTick);
+    }
 #endif
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);
 #ifdef DEBUG
@@ -755,6 +757,14 @@ rob->insts[tail].storeTick = rob->curTick +  int_fetch_lat + int_store_lat;
   }
 }
 
+__device__ void reset_latency(ROB *rob){
+	int start= 0;
+	int end= rob-> head;
+	for(int i=start; i<end;i++){
+		rob->insts[i].train_data[0]= 20;		
+	}
+}
+
 
 __global__ void
 preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *warmup_reset_index, bool *active_d, int *inf_id, int *inf_index, int *current_index_d)
@@ -793,6 +803,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     if(current_index_d[index]==(warmup_reset_index[index]+1)){
      rob->curTick_d= rob->curTick;
      int value= rob->curTick;
+     reset_latency(rob);
      //rob->curTick=0;
      //if(index==4)
      //{printf("Index: %d,C: %d,R: %d, curTick: %lu, Warmup completed.\n",index,current_index_d[index],warmup_reset_index[index], curTick);}

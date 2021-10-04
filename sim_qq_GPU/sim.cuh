@@ -516,7 +516,7 @@ __global__ void result(ROB *rob_d, int Total_Trace, int instructions, Tick *sum)
     }
 #else
     sum[0] += rob->curTick;
-    if(rob->curTick>100000)printf("T: %d, Tick: %lu\n", i, rob->curTick);
+    //if(rob->curTick>100000)printf("T: %d, Tick: %lu\n", i, rob->curTick);
 #endif
   }
   printf("%llu,",sum[0]);
@@ -659,11 +659,18 @@ update(ROB *rob_d, SQ *sq_d, float *output, int *status, int Total_Trace, int sh
 	    //printf("%d,%d,%d,%d,%d,%d,%d,%lu [Warmup]\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);
     }
    
-
 else {
-    {printf("%d,%d,%d,%d,%d,%d,%d, %lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+   //{printf("%d,%d,%d,%d,%d,%d,%d, %lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num, rob->curTick);}
+   printf("%d,%d,%d,%d,%lu\n",index,index_all[index],-int_fetch_lat,rob->rob_num,rob->curTick);
     }
-#endif
+
+#else
+{
+//printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);
+printf("%d,%d,%d,%d,%lu\n",index,index_all[index],-int_fetch_lat,rob->rob_num,rob->curTick);
+}
+    #endif
+
 
     //{printf("%d,%d,%d,%d,%d,%d,%d,%lu\n",index ,index_all[index],-int_fetch_lat, int_complete_lat, int_store_lat,rob->rob_num,sq->sq_num,rob->curTick);}
     //printf(",%d,%d,%d\n", -int_fetch_lat, int_complete_lat, int_store_lat);

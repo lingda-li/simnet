@@ -141,16 +141,16 @@ int main(int argc, char *argv[])
 {
   //printf("args count: %d\n", argc);
 #ifdef WARMUP
-  if (argc != 7)
+  if (argc != 8)
   {
-    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <Total trace><# inst> <W (warmup)>" << endl;
+    cerr << "Usage: ./simulator_q <trace> <aux trace> <lat module> <Total trace><# inst> <W (warmup)> <U>" << endl;
     return 0;
     //int W= atoi(argv[6]);
   }
 #else
-  if (argc != 6)
+  if (argc != 8)
   {
-    cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <Total trace> <#Insts>" << endl;
+    cerr << "Usage: ./simulator_qq <trace> <aux trace> <lat module> <Total trace> <#Insts> <W not used> <U>" << endl;
   return 0;
 }
 #endif
@@ -232,17 +232,19 @@ int W=0;
 #ifdef WARMUP
 W= atoi(argv[6]);
 #endif
+int U= atoi(argv[7]);
 //#pragma omp parallel for
 for (int i = 0; i < Total_Trace; i++)
 {
-  long long int offset = i * (Batch_size);
-//cout<<"offset: " << offset << endl;
-cout<< "W: "<<W<<", Index: "<< i <<" ,start: "<< offset << " ,warmup: "<< offset-W<< " ,End: "<<(offset + Batch_size) << endl;
+  long long int offset = (i * (Batch_size))-U;
+  //cout<<"offset: " << offset << endl;
+//cout<< "W: "<<W<<", Index: "<< i <<" ,start: "<< offset << " ,warmup: "<< offset-W<< " ,End: "<<(offset + Batch_size) << endl;
 #ifdef WARMUP
     offset= offset - W;
-    if(offset<0){offset=0;}
     //cout<< "W: "<<W<<", Index: "<< i <<", Offset: "<< offset << endl; 
 #endif
+    if(offset<0){offset=0;}
+    //cout<< "W: "<<W<<", Index: "<< i <<" ,start: "<< offset << " ,warmup: "<< offset-W<< " ,End: "<<(offset + Batch_size) << endl;
   //if(offset>Instructions)printf("Index: %d, offset: %d\n",i,offset);
   //assert(offset<=Instructions);
   //assert(offset>=0);
@@ -283,6 +285,7 @@ FILE *pFile,*outFile;
 pFile= fopen ("libcustom.bin", "wb");
 //outFile= fopen("pred.bin", "wb");
 //printf("Simulation started.. \n");
+//:return 0;
 int total_iterations= Batch_size + W;
 while (iteration < total_iterations){
   //if((iteration % 500)==0)
@@ -307,8 +310,11 @@ while (iteration < total_iterations){
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   double check3= wtime();
-  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE*2, cudaMemcpyDeviceToHost));
-  fwrite(inp+ML_SIZE, sizeof(float), ML_SIZE, pFile);
+  H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE * Total_Trace, cudaMemcpyDeviceToHost));
+  //fwrite(inp, sizeof(float), ML_SIZE*Total_Trace, pFile);
+  //int *in= (int *) malloc(1);
+  //in[0]=iteration; 
+  //fwrite(in,sizeof(int),1,pFile);
   //printf("Input:\n");
   //display(inp, 51,4);
   pre+= (check3-check2);
@@ -332,6 +338,7 @@ while (iteration < total_iterations){
   double check5=wtime();
   upd+=(check5-check4);
   iteration++;
+  //if(iteration==11) return 0;
 }
 fclose(pFile);
 //fclose(outFile);
