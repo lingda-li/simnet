@@ -1,5 +1,6 @@
 #ifndef TRT_H
 #define TRT_H
+#include <random>
 #include <fstream> 
 #include <iostream>
 #include <vector>
@@ -9,10 +10,14 @@
 #include <NvOnnxParser.h>
 using namespace std;
 
+typedef float custom_t;
+#define inst_length 50
+#define context_length 111
+
 class Logger : public nvinfer1::ILogger
 {
 public:
-    void log(Severity severity, const char* msg) override {
+    void log(Severity severity, const char* msg) noexcept override {
         // remove this 'if' if you need more logged info
 	if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) {
             std::cout << msg << "\n";

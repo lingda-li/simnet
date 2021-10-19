@@ -276,7 +276,7 @@ H_ERR(cudaMalloc((void **)&inst_d, sizeof(Inst)*Total_Trace));
 // For factor, mean and default values
 H_ERR(cudaMalloc((void **)&default_val_d, sizeof(float) * (TD_SIZE)));
 H_ERR(cudaMemcpy(default_val_d, &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
-struct timeval total_start, total_end;
+struct timeval check3, t;
 int iteration = 0;
 gettimeofday(&total_start, NULL);
 double start_ = wtime();
@@ -306,10 +306,12 @@ while (iteration < total_iterations){
   tr+= (check2-check1);
   //cout<<"Data transferred\n";
   H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
+  gettimeofday(&t, NULL);
   preprocess<<<4096, 32>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu, iteration, W, Batch_size);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
-  double check3= wtime();
+  //double check3= wtime();
+  gettimeofday(&check3, NULL);
   H_ERR(cudaMemcpy(inp,inputPtr, sizeof(float) * ML_SIZE * Total_Trace, cudaMemcpyDeviceToHost));
   //fwrite(inp, sizeof(float), ML_SIZE*Total_Trace, pFile);
   //int *in= (int *) malloc(1);
@@ -317,7 +319,8 @@ while (iteration < total_iterations){
   //fwrite(in,sizeof(int),1,pFile);
   //printf("Input:\n");
   //display(inp, 51,4);
-  pre+= (check3-check2);
+  pre+= (check3-t);
+  //printf(",%f \n",(check3-t));
   check3 = wtime();
   //pre+= (check3-check2);
   std::vector<torch::jit::IValue> inputs;
@@ -340,10 +343,15 @@ while (iteration < total_iterations){
   iteration++;
   //if(iteration==11) return 0;
 }
+double e = wtime();
+double end_ = wtime();
+double total_time = check3.tv_sec - t.tv_sec + (check3.tv_usec - t.tv_usec) / 1000000.0;
+printf("Avg: Total: %f, Pre %f\n",(end_-start_)/Instructions,total_time/Instructions);
+return 0;
 fclose(pFile);
 //fclose(outFile);
 //printf("%.4f, %.4f, %.4f, %.4f, %.4f\n",red, tr, pre, inf, upd);
-double end_ = wtime();
+//double end_ = wtime();
 
 gettimeofday(&total_end, NULL);
 Tick *total_tick;
