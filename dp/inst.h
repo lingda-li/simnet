@@ -50,6 +50,7 @@ struct Inst {
 
   // Instruction access.
   Addr pc;
+  int branching;
   int isMisPredict;
   int fetchDepth;
   int iwalkDepth[3];
@@ -60,6 +61,10 @@ struct Inst {
   Tick inTick;
   Tick completeTick;
   Tick outTick;
+  Tick decodeTick;
+  Tick renameTick;
+  Tick dispatchTick;
+  Tick issueTick;
   Tick storeTick;
   Tick sqOutTick = 0;
 

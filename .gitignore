@@ -19,10 +19,5 @@ res
 log
 stats
 sim/build*
-dp/buildROB
-dp/buildQ
-dp/buildML
-dp/buildCxt
-dp/buildSim
-dp/buildQSim
+dp/build*
 ml/cfg.py
