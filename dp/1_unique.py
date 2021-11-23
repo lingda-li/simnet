@@ -7,6 +7,7 @@ from sortedcontainers import SortedList
 
 parser = argparse.ArgumentParser(description="Unique dataset")
 parser.add_argument('--size', type=int, default=0)
+parser.add_argument('--skip', type=int, default=0)
 parser.add_argument('fname', nargs='*')
 args = parser.parse_args()
 size = args.size * 1000000000
@@ -45,14 +46,13 @@ def dump():
 for i in range(len(args.fname)):
     fname = args.fname[i]
     print("read ", fname, flush=True)
-    first = False
-    if len(args.fname) == 1:
-        first = True
     with open(fname) as f:
+        skip_count = 0
         for line in f:
-            # skip first line.
-            if first:
-                first = False
+            # skip first part.
+            if skip_count < args.skip:
+                skip_count += 1
+                continue
             elif line.strip():
                 nlines += 1
                 data = line.rstrip('\n')
