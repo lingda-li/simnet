@@ -59,6 +59,10 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
   assert(!inSQ() || (completeTick2 == completeTick && outTick2 == outTick &&
                      storeTick >= outTick));
 
+  if (issueTick == (Tick)(-1)) {
+    assert(dispatchTick == completeTick);
+    issueTick = dispatchTick;
+  }
   assert(outTick >= completeTick && completeTick >= issueTick &&
          issueTick >= dispatchTick && dispatchTick >= renameTick &&
          renameTick >= decodeTick);
@@ -143,7 +147,6 @@ void printOP(Inst *i) {
 
 void Inst::dump(Tick tick, bool first, int is_addr, Addr begin, Addr end,
                 Addr PC, Addr *iwa, Addr *dwa, ostream &out) {
-  assert(first || (iwa && dwa));
   Tick fetchLat;
   if (first)
     fetchLat = inTick - tick;
