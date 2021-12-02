@@ -30,12 +30,12 @@ bool Inst::read(ifstream &ROBtrace, ifstream &SQtrace) {
     SQtrace >> sqIdx2 >> inTick2 >> completeTick2 >> outTick2 >>
         decodeTick2 >> renameTick2 >> dispatchTick2 >> issueTick2 >>
         storeTick >> sqOutTick;
+    if (SQtrace.eof())
+      return false;
     assert(sqIdx2 == sqIdx && inTick2 == inTick && decodeTick2 == decodeTick &&
            renameTick2 == renameTick && dispatchTick2 == dispatchTick &&
            issueTick2 == issueTick);
     assert(sqOutTick >= storeTick);
-    if (SQtrace.eof())
-      return false;
     trace = &SQtrace;
   }
 

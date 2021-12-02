@@ -3,7 +3,7 @@
 import numpy as np
 import sys
 from sortedcontainers import SortedList
-from rr_format import *
+from ml.cfg import inst_length
 
 nlines = 0
 bad_lines = 0

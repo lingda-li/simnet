@@ -2,7 +2,7 @@ import sys
 import os
 import argparse
 import numpy as np
-from rr_format import *
+from ml.cfg import inst_length, context_length, data_item_format
 
 parser = argparse.ArgumentParser(description="Make Q memmap dataset")
 parser.add_argument('--start', type=int, default=0)
@@ -30,7 +30,7 @@ cur_idx = 0
 bad_lines = 0
 bad_content = 0
 all_idx = np.memmap(idx_output, dtype=np.uint64, mode='w+', shape=r)
-all_feats = np.memmap(output, dtype=np.uint16, mode='w+', shape=w)
+all_feats = np.memmap(output, dtype=data_item_format, mode='w+', shape=w)
 all_idx[0] = 0
 
 for i in range(len(args.fname)):

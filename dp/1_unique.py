@@ -13,7 +13,7 @@ args = parser.parse_args()
 size = args.size * 1000000000
 outputp = args.fname[0]
 if len(args.fname) > 1:
-    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.qq")
+    outputp = os.path.join(os.path.dirname(args.fname[0]), "all.21")
 outputp += "u"
 
 lines = SortedList()
