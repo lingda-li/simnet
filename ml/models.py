@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
-from cfg import context_length, inst_length
+from cfg import context_length, input_length as inst_length
 from enet import E1DNet
 from vit import InsT
 

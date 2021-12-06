@@ -1,32 +1,35 @@
 import numpy as np
 
-context_length = 111
+input_start = 11
+#target_length = input_start
+#target_length = 3
+target_length = 9
 inst_length = 11 + 33
-
-num_classes = 10
-min_complete_lat = 6
-min_store_lat = 10
+input_length = inst_length - 2
+context_length = 111
 
 # Data set configuration.
-data_set_name = "data_spec_q"
-data_file_name = data_set_name + "/all0.qqu.mmap"
+data_set_name = "data_spec_test"
+data_file_name = data_set_name + "/all.21u"
 data_item_format = np.uint16
-total_size = 71433975
-# total batch number is 1089.996
-testbatchnum = 1080
-validbatchnum = 1000
-validbatchsize = 40
-
-#data_file_name = data_set_name + "/all.qqu.mmap"
-#data_item_format = np.uint16
-#total_size = 223711663
-## total batch number is 3413.57
-#testbatchnum = 3412 # 2720 is the number for 10% test
-#validbatchnum = 3300
-#validbatchsize = 80
+total_size = 32978671
+total_inst_num = 1520961770
+# total batch number is 503.21
+testbatchnum = 500
+validbatchnum = 448
+validbatchsize = 24
+num_classes = 0
 
 ori_batch_size = 1024 * 64
 test_start = testbatchnum * ori_batch_size
 test_end = (testbatchnum + 1) * ori_batch_size
 valid_start = validbatchnum * ori_batch_size
 valid_end = (validbatchnum + validbatchsize) * ori_batch_size
+
+field_fetch_lat = 0
+field_completion_lat = 1
+field_store_lat = 2
+field_op = 11
+
+min_complete_lat = 6
+min_store_lat = 10

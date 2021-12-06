@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from datetime import datetime
 from ptflops import get_model_complexity_info
-from cfg import context_length, inst_length
+from cfg import context_length, inst_length, input_length
 from models import *
 
 
@@ -151,7 +151,7 @@ def profile_model(model, para=False):
         constructor = input_constructor
     else:
         constructor = None
-    macs, params = get_model_complexity_info(model, (context_length, inst_length), as_strings=True,
+    macs, params = get_model_complexity_info(model, (context_length, input_length), as_strings=True,
                                              input_constructor=constructor, print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
