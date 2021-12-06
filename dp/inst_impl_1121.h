@@ -211,7 +211,6 @@ void Inst::dumpSim(ostream &out) {
   out << isAddr << " ";
   out << addr << " ";
   out << addrEnd << " ";
-  out << "\n";
 }
 
 #endif
