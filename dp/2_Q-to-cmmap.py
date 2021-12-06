@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 from ml.cfg import inst_length, context_length, data_item_format
 
-parser = argparse.ArgumentParser(description="Make Q memmap dataset")
+parser = argparse.ArgumentParser(description="Make memmap dataset")
 parser.add_argument('--start', type=int, default=0)
 parser.add_argument('--end', type=int, default=0)
 parser.add_argument('--total-entries', type=int, default=0)
@@ -16,13 +16,13 @@ start = args.start
 end = args.end
 output = args.fname[0]
 if len(args.fname) > 1:
-    output = os.path.join(os.path.dirname(args.fname[0]), "totalall")
+    output = os.path.join(os.path.dirname(args.fname[0]), "train")
 idx_output = output + ".idx"
 output += ".dat"
 r = args.total_entries + 1
 w = args.total_insts * inst_length
 
-print("Make Q dataset ", output, ", start from", start, ", end with", end, ", shape is ", r, w, flush=True)
+print("Make dataset", output, ", start from", start, ", end with", end, ", shape is ", r, w, flush=True)
 
 nlines = 0
 nfilled = 0

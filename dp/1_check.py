@@ -3,7 +3,7 @@
 import numpy as np
 import sys
 from sortedcontainers import SortedList
-from ml.cfg import inst_length
+from ml.cfg import inst_length, field_fetch_lat, field_op
 
 nlines = 0
 bad_lines = 0
