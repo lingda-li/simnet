@@ -2,10 +2,10 @@ import numpy as np
 
 input_start = 11
 #target_length = input_start
-#target_length = 3
-target_length = 9
+target_length = 3
+#target_length = 9
 inst_length = 11 + 33
-input_length = inst_length - 2
+input_length = inst_length - (input_start - target_length)
 context_length = 111
 
 # Data set configuration.

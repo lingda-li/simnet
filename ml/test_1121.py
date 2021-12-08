@@ -55,20 +55,29 @@ def analyze(args, output, lat_target, cla_target=None, cla_output=None):
         assert cla_target is not None
         cla_target = cla_target.detach().numpy()
     complete_sum = np.zeros(lat_target.shape[0])
+    complete_target_sum = np.zeros(lat_target.shape[0])
     store_sum = np.zeros(lat_target.shape[0])
+    store_target_sum = np.zeros(lat_target.shape[0])
     cal_sum = False
     if target_length == input_start:
         cal_sum = True
+        component_start = 3
+    elif target_length == input_start - 2:
+        cal_sum = True
+        component_start = 1
     for i in range(target_length):
         print(i, ":")
         lat_output = output.detach().numpy()
         lat_output = lat_output[:,i]
         cur_lat_target = lat_target[:,i]
-        if cal_sum and i >= 3 and i < input_start - 3:
+        if cal_sum and i >= component_start and i < input_start - 3:
             complete_sum += lat_output
+            complete_target_sum += cur_lat_target
             store_sum += lat_output
-        elif cal_sum and i >= 3 and i < input_start - 1:
+            store_target_sum += cur_lat_target
+        elif cal_sum and i >= component_start and i < input_start - 1:
             store_sum += lat_output
+            store_target_sum += cur_lat_target
 
         if args.no_class:
             cur_output = lat_output
@@ -95,10 +104,9 @@ def analyze(args, output, lat_target, cla_target=None, cla_output=None):
 
     if cal_sum:
         print("Combined complete:")
-        analyze_lat(args, complete_sum, lat_target[:,1])
+        analyze_lat(args, complete_sum, complete_target_sum)
         print("Combined store:")
-        store_target = np.maximum(lat_target[:,1], lat_target[:,2])
-        analyze_lat(args, store_sum, store_target)
+        analyze_lat(args, store_sum, store_target_sum)
 
 
 def test(args, model, device, test_loader):
@@ -161,7 +169,7 @@ def save_ts_model(name, model, device):
     assert 'checkpoints/' in name
     name = name.replace('checkpoints/', 'models/')
     model.eval()
-    traced_script_module = torch.jit.trace(model, torch.rand(1, context_length * inst_length).to(device))
+    traced_script_module = torch.jit.trace(model, torch.rand(1, context_length * input_length).to(device))
     traced_script_module.save(name)
     print("Saved model", name)
 

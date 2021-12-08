@@ -43,8 +43,8 @@ using namespace std;
 #define FETCH_LAT 0
 #define COMPLETE_LAT 1
 #define STORE_LAT 2
-#define IN_START 3
-//#define IN_START 11
+#define IN_START 11
+//#define IN_START 3
 #define INSQ_BIT (IN_START+1)
 #define SC_BIT (IN_START+9)
 #define ILINEC_BIT (IN_START+15)
@@ -75,7 +75,10 @@ struct Inst {
   Addr addr;
   Addr addrEnd;
   bool inSQ() {
-    return (bool)train_data[INSQ_BIT] && !((bool)train_data[SC_BIT]);
+    return (bool)train_data[INSQ_BIT];
+  }
+  bool isStore() {
+    return (bool)train_data[INSQ_BIT] || (bool)train_data[SC_BIT];
   }
   void init(Inst &copy) {
     std::copy(copy.targets, copy.targets + IN_START, targets);
@@ -142,6 +145,9 @@ struct Queue {
   }
   Inst *getHead() {
     return &insts[head];
+  }
+  Inst *getTail() {
+    return &insts[dec(tail)];
   }
   void retire() {
     assert(!is_empty());
@@ -297,6 +303,7 @@ int main(int argc, char *argv[]) {
   unsigned long long fetched_inst_num = 0;
   double measured_time = 0.0;
   Tick curTick = 0;
+  Tick lastFetchTick = 0;
   bool eof = false;
   struct Queue *rob = new Queue(ROBSIZE);
   struct Queue *sq = new Queue(SQSIZE);
@@ -319,14 +326,12 @@ int main(int argc, char *argv[]) {
 
   struct timeval start, end, total_start, total_end;
   gettimeofday(&total_start, NULL);
-  while(!eof || !rob->is_empty()) {
+  while(true) {
     // Retire instructions.
     int sq_retired = sq->retire_until(curTick);
     // Instruction retired from ROB need to enter SQ sometimes.
     int rob_retired = rob->retire_until(curTick, sq);
     inst_num += rob_retired;
-    //if (inst_num >= 10)
-    //  break;
 #ifdef DEBUG
     if (sq_retired || rob_retired)
       cout << curTick << " r " << rob_retired << " " << sq_retired << "\n";
@@ -354,14 +359,14 @@ int main(int argc, char *argv[]) {
 #else
       // Predict fetch, completion, and store latency.
       gettimeofday(&start, NULL);
-      int rob_num = rob->make_input_data(inputPtr, *newInst, true, curTick);
-      int sq_num = sq->make_input_data(inputPtr + rob_num * TD_SIZE, *newInst, false, curTick);
+      int rob_num = rob->make_input_data(inputPtr, *newInst, true, curTick - lastFetchTick);
+      int sq_num = sq->make_input_data(inputPtr + rob_num * TD_SIZE, *newInst, false, curTick - lastFetchTick);
       int num = rob_num + sq_num;
       if (num < CONTEXTSIZE)
         std::copy(default_val, default_val + (CONTEXTSIZE - num) * TD_SIZE, inputPtr + num * TD_SIZE);
 #ifdef DUMP_ML_INPUT
-      for (int i = IN_START; i < ML_SIZE; i++) {
-        cout << newInst->targets[i];
+      for (int i = 0; i < IN_START; i++) {
+        cout << newInst->targets[i] << " ";
       }
       for (int i = IN_START; i < ML_SIZE; i++) {
         if (i % TD_SIZE == 0 && inputPtr[i + IN_START] == 0)
@@ -433,6 +438,15 @@ int main(int argc, char *argv[]) {
       int_complete_lat = newInst->targets[COMPLETE_LAT];
       int_store_lat = newInst->targets[STORE_LAT];
 #endif
+      int all_lats[IN_START];
+      for (int i = 3; i < IN_START; i++) {
+#ifdef DUMP_ML_INPUT
+        all_lats[i] = newInst->targets[i];
+#else
+        float lat = output[0][i].item<float>();
+        all_lats[i] = round(lat);
+#endif
+      }
       if (is_scale_pred) {
         int_fetch_lat += round(
             ((int)newInst->targets[FETCH_LAT] - int_fetch_lat) * scale_factor);
@@ -441,17 +455,24 @@ int main(int argc, char *argv[]) {
                   scale_factor);
         int_store_lat += round(
             ((int)newInst->targets[STORE_LAT] - int_store_lat) * scale_factor);
+        for (int i = 3; i < IN_START; i++)
+          all_lats[i] += round(
+              ((int)newInst->targets[i] - all_lats[i]) * scale_factor);
       }
       // Calibrate latency.
       if (int_fetch_lat < 0)
         int_fetch_lat = 0;
       if (int_complete_lat < MIN_COMP_LAT)
         int_complete_lat = MIN_COMP_LAT;
-      if (!newInst->inSQ()) {
+      if (!newInst->isStore()) {
         assert(newInst->targets[STORE_LAT] == 0);
         int_store_lat = 0;
       } else if (int_store_lat < MIN_ST_LAT)
         int_store_lat = MIN_ST_LAT;
+      for (int i = 3; i < IN_START; i++) {
+        if (all_lats[i] < 0)
+          all_lats[i] = 0;
+      }
       totalFetchDiff += (int)newInst->targets[FETCH_LAT] - int_fetch_lat;
       totalAbsFetchDiff +=
           abs((int)newInst->targets[FETCH_LAT] - int_fetch_lat);
@@ -465,9 +486,12 @@ int main(int argc, char *argv[]) {
       newInst->train_data[FETCH_LAT] = -int_fetch_lat;
       newInst->train_data[COMPLETE_LAT] = int_complete_lat;
       newInst->train_data[STORE_LAT] = int_store_lat;
+      for (int i = 3; i < IN_START; i++)
+        newInst->train_data[i] = all_lats[i];
 #endif
       newInst->completeTick = curTick + int_fetch_lat + int_complete_lat + 1;
       newInst->storeTick = curTick + int_fetch_lat + int_store_lat;
+      lastFetchTick = curTick;
 #ifdef DUMP_IPC
       interval_fetch_lat += int_fetch_lat;
       if (fetched_inst_num % DUMP_IPC_INTERVAL == 0) {
@@ -503,6 +527,11 @@ int main(int argc, char *argv[]) {
       Case2++;
     } else {
       assert(eof);
+      if (rob->is_empty()) {
+        if (!sq->is_empty())
+          curTick = rob->getTail()->storeTick;
+        break;
+      }
       curTick = max(rob->getHead()->completeTick, curTick + 1);
       Case5++;
     }
@@ -518,7 +547,7 @@ int main(int argc, char *argv[]) {
 #endif
   time_t now = time(0);
   cout << "Finish at " << ctime(&now);
-  cout << inst_num << " instructions finish by " << (curTick - 1) << "\n";
+  cout << inst_num << " instructions finish by " << curTick << "\n";
   cout << "Time: " << total_time << "\n";
   cout << "MIPS: " << inst_num / total_time / 1000000.0 << "\n";
   cout << "USPI: " << total_time * 1000000.0 / inst_num << "\n";
@@ -537,15 +566,15 @@ int main(int argc, char *argv[]) {
        << (double)totalAbsStoreDiff / inst_num << " per inst)\n";
   cout << "Cases: " << Case0 << " " << Case1 << " " << Case2 << " " << Case3
        << " " << Case4 << " " << Case5 << "\n";
-  cout << "Trace: " << argv[1] << " " << argv[2] << "\n";
+  cout << "Trace: " << argv[1] << "\n";
 #if defined(RUN_TRUTH)
   cout << "Truth" << "\n";
 #elif defined(CLASSIFY)
-  cout << "Model: " << argv[3] << " " << argv[4] << "\n";
+  cout << "Model: " << argv[2] << " " << argv[3] << "\n";
 #elif defined(COMBINED)
-  cout << "Combined Model: " << argv[3] << "\n";
+  cout << "Combined Model: " << argv[2] << "\n";
 #else
-  cout << "Latency Model: " << argv[3] << "\n";
+  cout << "Latency Model: " << argv[2] << "\n";
 #endif
   return 0;
 }
