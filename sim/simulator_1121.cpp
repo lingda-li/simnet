@@ -43,8 +43,8 @@ using namespace std;
 #define FETCH_LAT 0
 #define COMPLETE_LAT 1
 #define STORE_LAT 2
-#define IN_START 11
-//#define IN_START 3
+//#define IN_START 11
+#define IN_START 3
 #define INSQ_BIT (IN_START+1)
 #define SC_BIT (IN_START+9)
 #define ILINEC_BIT (IN_START+15)
@@ -100,7 +100,9 @@ struct Inst {
       train_data[i] = 0.0;
     }
     assert(targets[COMPLETE_LAT] >= MIN_COMP_LAT || targets[COMPLETE_LAT] == 0);
+#if IN_START != 3
     assert(targets[STORE_LAT] == 0 || targets[STORE_LAT]>= MIN_ST_LAT);
+#endif
     for (int i = IN_START; i < TD_SIZE; i++) {
       trace >> train_data[i];
       //cout << train_data[i] << " ";
@@ -163,6 +165,9 @@ struct Queue {
             break;
           Inst *newInst = sq->add();
           newInst->init(insts[head]);
+#if IN_START == 3
+          newInst->storeTick += tick;
+#endif
         }
         retire();
         retired++;
@@ -398,7 +403,7 @@ int main(int argc, char *argv[]) {
 #if defined(CLASSIFY)
         float max = cla_output[0][CLASS_NUM*i].item<float>();
 #else
-        float max = output[0][CLASS_NUM*i+3].item<float>();
+        float max = output[0][CLASS_NUM*i+IN_START].item<float>();
 #endif
         int idx = 0;
         for (int j = 1; j < CLASS_NUM; j++) {
@@ -408,8 +413,8 @@ int main(int argc, char *argv[]) {
             idx = j;
           }
 #else
-          if (max < output[0][CLASS_NUM*i+3+j].item<float>()) {
-            max = output[0][CLASS_NUM*i+3+j].item<float>();
+          if (max < output[0][CLASS_NUM*i+IN_START+j].item<float>()) {
+            max = output[0][CLASS_NUM*i+IN_START+j].item<float>();
             idx = j;
           }
 #endif
@@ -430,13 +435,12 @@ int main(int argc, char *argv[]) {
         int_complete_lat = classes[1] + MIN_COMP_LAT;
       if (classes[2] == 0)
         int_store_lat = 0;
-      else if (classes[2] <= 8 )
+      else if (classes[2] <= 8)
+#if IN_START == 3
+        int_store_lat = classes[2];
+#else
         int_store_lat = classes[2] + MIN_ST_LAT - 1;
 #endif
-#ifdef DUMP_ML_INPUT
-      int_fetch_lat = newInst->targets[FETCH_LAT];
-      int_complete_lat = newInst->targets[COMPLETE_LAT];
-      int_store_lat = newInst->targets[STORE_LAT];
 #endif
       int all_lats[IN_START];
       for (int i = 3; i < IN_START; i++) {
@@ -464,11 +468,19 @@ int main(int argc, char *argv[]) {
         int_fetch_lat = 0;
       if (int_complete_lat < MIN_COMP_LAT)
         int_complete_lat = MIN_COMP_LAT;
+#if IN_START == 3
+      if (!newInst->inSQ()) {
+        assert(newInst->targets[STORE_LAT] == 0);
+        int_store_lat = 0;
+      } else if (int_store_lat < 0)
+        int_store_lat = 0;
+#else
       if (!newInst->isStore()) {
         assert(newInst->targets[STORE_LAT] == 0);
         int_store_lat = 0;
       } else if (int_store_lat < MIN_ST_LAT)
         int_store_lat = MIN_ST_LAT;
+#endif
       for (int i = 3; i < IN_START; i++) {
         if (all_lats[i] < 0)
           all_lats[i] = 0;
@@ -483,6 +495,12 @@ int main(int argc, char *argv[]) {
       totalStoreDiff += (int)newInst->targets[STORE_LAT] - int_store_lat;
       totalAbsStoreDiff +=
           abs((int)newInst->targets[STORE_LAT] - int_store_lat);
+
+#ifdef DUMP_ML_INPUT
+      int_fetch_lat = newInst->targets[FETCH_LAT];
+      int_complete_lat = newInst->targets[COMPLETE_LAT];
+      int_store_lat = newInst->targets[STORE_LAT];
+#endif
       newInst->train_data[FETCH_LAT] = -int_fetch_lat;
       newInst->train_data[COMPLETE_LAT] = int_complete_lat;
       newInst->train_data[STORE_LAT] = int_store_lat;
@@ -490,7 +508,11 @@ int main(int argc, char *argv[]) {
         newInst->train_data[i] = all_lats[i];
 #endif
       newInst->completeTick = curTick + int_fetch_lat + int_complete_lat + 1;
+#if IN_START == 3
+      newInst->storeTick = int_store_lat;
+#else
       newInst->storeTick = curTick + int_fetch_lat + int_store_lat;
+#endif
       lastFetchTick = curTick;
 #ifdef DUMP_IPC
       interval_fetch_lat += int_fetch_lat;
@@ -529,7 +551,7 @@ int main(int argc, char *argv[]) {
       assert(eof);
       if (rob->is_empty()) {
         if (!sq->is_empty())
-          curTick = rob->getTail()->storeTick;
+          curTick = sq->getTail()->storeTick;
         break;
       }
       curTick = max(rob->getHead()->completeTick, curTick + 1);

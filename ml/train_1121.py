@@ -69,10 +69,10 @@ def train_mul(args, models, device, train_loader, epoch, rank, regression):
             for ms in models:
                 ms.optimizer.zero_grad()
                 output = ms.model(data)
-                lat_loss = lat_loss_fn(output[:,0:input_start], lat_target)
-                cla_loss1 = cla_loss_fn(output[:,input_start:input_start+num_classes], cla_target[:,0])
-                cla_loss2 = cla_loss_fn(output[:,input_start+num_classes:input_start+2*num_classes], cla_target[:,1])
-                cla_loss3 = cla_loss_fn(output[:,input_start+2*num_classes:input_start+3*num_classes], cla_target[:,2])
+                lat_loss = lat_loss_fn(output[:,0:target_length], lat_target)
+                cla_loss1 = cla_loss_fn(output[:,target_length:target_length+num_classes], cla_target[:,0])
+                cla_loss2 = cla_loss_fn(output[:,target_length+num_classes:target_length+2*num_classes], cla_target[:,1])
+                cla_loss3 = cla_loss_fn(output[:,target_length+2*num_classes:target_length+3*num_classes], cla_target[:,2])
                 loss = combine_loss(lat_loss, cla_loss1, cla_loss2, cla_loss3)
                 ms.total_cla_loss1 += cla_loss1.item()
                 ms.total_cla_loss2 += cla_loss2.item()
@@ -86,9 +86,9 @@ def train_mul(args, models, device, train_loader, epoch, rank, regression):
                 break
     if rank == 0:
         print('', flush=True)
-    end_t = time.time()
     if args.distributed:
         dist.barrier()
+    end_t = time.time()
     for ms in models:
         ms.total_lat_loss /= len(train_loader)
         if not regression:
@@ -100,6 +100,8 @@ def train_mul(args, models, device, train_loader, epoch, rank, regression):
         else:
             print('Train Epoch {} {}: {} \tLat Loss: {:.6f} \tTime: {:.1f}'.format(
                 epoch, ms.idx, rank, ms.total_lat_loss, end_t - start_t), flush=True)
+        if args.distributed:
+            dist.barrier()
 
 
 def test_mul(args, models, device, test_loader, rank, regression):
@@ -115,16 +117,16 @@ def test_mul(args, models, device, test_loader, rank, regression):
                 data, lat_target = data.to(device), lat_target.to(device)
                 for ms in models:
                     output = ms.model(data)
-                    ms.total_lat_loss += lat_loss_fn(output[:,0:input_start], lat_target).item()
+                    ms.total_lat_loss += lat_loss_fn(output, lat_target).item()
         else:
             for data, lat_target, cla_target in test_loader:
                 data, lat_target, cla_target = data.to(device), lat_target.to(device), cla_target.to(device)
                 for ms in models:
                     output = ms.model(data)
-                    ms.total_lat_loss += lat_loss_fn(output[:,0:input_start], lat_target).item()
-                    ms.total_cla_loss1 += cla_loss_fn(output[:,input_start:input_start+num_classes], cla_target[:,0]).item()
-                    ms.total_cla_loss2 += cla_loss_fn(output[:,input_start+num_classes:input_start+2*num_classes], cla_target[:,1]).item()
-                    ms.total_cla_loss3 += cla_loss_fn(output[:,input_start+2*num_classes:input_start+3*num_classes], cla_target[:,2]).item()
+                    ms.total_lat_loss += lat_loss_fn(output[:,0:target_length], lat_target).item()
+                    ms.total_cla_loss1 += cla_loss_fn(output[:,target_length:target_length+num_classes], cla_target[:,0]).item()
+                    ms.total_cla_loss2 += cla_loss_fn(output[:,target_length+num_classes:target_length+2*num_classes], cla_target[:,1]).item()
+                    ms.total_cla_loss3 += cla_loss_fn(output[:,target_length+2*num_classes:target_length+3*num_classes], cla_target[:,2]).item()
     for ms in models:
         ms.total_lat_loss /= len(test_loader)
         if not regression:
@@ -138,6 +140,8 @@ def test_mul(args, models, device, test_loader, rank, regression):
             ms.cur_loss = ms.total_lat_loss
             print('Test set {} {}: Lat Loss: {:.6f}'.format(
                 ms.idx, rank, ms.total_lat_loss), flush=True)
+        if args.distributed:
+            dist.barrier()
 
 
 def save_checkpoint(name, model, optimizer, epoch, best_loss, lr, best=False):

@@ -59,52 +59,71 @@ def analyze(args, output, lat_target, cla_target=None, cla_output=None):
     store_sum = np.zeros(lat_target.shape[0])
     store_target_sum = np.zeros(lat_target.shape[0])
     cal_sum = False
+    cal_st_sum = False
     if target_length == input_start:
         cal_sum = True
+        cal_st_sum = True
         component_start = 3
+        component_end = input_start - 3
+        st_component_end = input_start - 1
     elif target_length == input_start - 2:
         cal_sum = True
+        cal_st_sum = True
         component_start = 1
+        component_end = input_start - 5
+        st_component_end = input_start - 3
+    elif target_length == input_start - 3:
+        cal_sum = True
+        component_start = 2
+        component_end = input_start - 4
     for i in range(target_length):
         print(i, ":")
         lat_output = output.detach().numpy()
         lat_output = lat_output[:,i]
         cur_lat_target = lat_target[:,i]
-        if cal_sum and i >= component_start and i < input_start - 3:
+        if cal_sum and i >= component_start and i < component_end:
             complete_sum += lat_output
             complete_target_sum += cur_lat_target
-            store_sum += lat_output
-            store_target_sum += cur_lat_target
-        elif cal_sum and i >= component_start and i < input_start - 1:
+        if cal_st_sum and i >= component_start and i < st_component_end:
             store_sum += lat_output
             store_target_sum += cur_lat_target
 
         if args.no_class:
             cur_output = lat_output
         else:
-            if cla_output is not None:
-                cla_res = torch.argmax(cla_output[:,num_classes*i:num_classes*(i+1)], dim=1)
+            cla_idx = -1
+            if i < 2:
+                cla_idx = i
+            elif i == target_length - 1:
+                cla_idx = 2
+            if cla_idx != -1:
+                if cla_output is not None:
+                    cla_res = torch.argmax(cla_output[:,num_classes*cla_idx:num_classes*(cla_idx+1)], dim=1)
+                else:
+                    cla_res = torch.argmax(output[:,num_classes*cla_idx+target_length:num_classes*(cla_idx+1)+target_length], dim=1)
+                cla_res = cla_res.detach().numpy()
+                cur_cla_target = cla_target[:,cla_idx]
+                print("\tclass output:", cla_res)
+                print("\tclass target:", cur_cla_target)
+                if cla_idx == 0: # Fetch latency.
+                    com_output = np.where(cla_res < num_classes - 1, cla_res, lat_output)
+                elif cla_idx == 1: # Completion latency.
+                    com_output = np.where(cla_res < num_classes - 1, cla_res + min_complete_lat, lat_output)
+                else:
+                    #com_output = np.where(cla_res < num_classes - 1, cla_res + (min_store_lat - 1), lat_output)
+                    #com_output = np.where(cla_res == 0, 0, com_output)
+                    com_output = np.where(cla_res < num_classes - 1, cla_res, lat_output)
+                print("\tcombined output:", com_output)
+                cur_output = com_output
             else:
-                cla_res = torch.argmax(output[:,num_classes*i+3:num_classes*(i+1)+3], dim=1)
-            cla_res = cla_res.detach().numpy()
-            cur_cla_target = cla_target[:,i]
-            print("\tclass output:", cla_res)
-            print("\tclass target:", cur_cla_target)
-            if i == 0: # Fetch latency.
-                com_output = np.where(cla_res < num_classes - 1, cla_res, lat_output)
-            elif i == 1: # Completion latency.
-                com_output = np.where(cla_res < num_classes - 1, cla_res + min_complete_lat, lat_output)
-            else:
-                com_output = np.where(cla_res < num_classes - 1, cla_res + (min_store_lat - 1), lat_output)
-                com_output = np.where(cla_res == 0, 0, com_output)
-            print("\tcombined output:", com_output)
-            cur_output = com_output
+                cur_output = lat_output
 
         analyze_lat(args, cur_output, cur_lat_target)
 
     if cal_sum:
         print("Combined complete:")
         analyze_lat(args, complete_sum, complete_target_sum)
+    if cal_st_sum:
         print("Combined store:")
         analyze_lat(args, store_sum, store_target_sum)
 
@@ -130,17 +149,19 @@ def test(args, model, device, test_loader):
         else:
             total_output = torch.zeros(0, target_length+3*num_classes)
             total_lat_target = torch.zeros(0, target_length)
-            total_cla_target = torch.zeros(0, 3*num_classes)
+            total_cla_target = torch.zeros(0, 3)
             for data, lat_target, cla_target in test_loader:
                 total_lat_target = torch.cat((total_lat_target, lat_target), 0)
                 total_cla_target = torch.cat((total_cla_target, cla_target), 0)
                 data, lat_target, cla_target = data.to(device), lat_target.to(device), cla_target.to(device)
                 output = model(data)
-                total_output = torch.cat((total_output, output), 0)
                 total_lat_loss += lat_loss_fn(output[:,0:target_length], lat_target).item()
                 total_cla_loss1 += cla_loss_fn(output[:,target_length:target_length+num_classes], cla_target[:,0]).item()
                 total_cla_loss2 += cla_loss_fn(output[:,target_length+num_classes:target_length+2*num_classes], cla_target[:,1]).item()
                 total_cla_loss3 += cla_loss_fn(output[:,target_length+2*num_classes:target_length+3*num_classes], cla_target[:,2]).item()
+                if not args.no_cuda:
+                    output = output.cpu()
+                total_output = torch.cat((total_output, output), 0)
     total_lat_loss /= len(test_loader)
     if args.no_class:
         print('Test set: Lat Loss: {:.6f}'.format(total_lat_loss), flush=True)
