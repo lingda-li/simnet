@@ -4,6 +4,8 @@ from datetime import datetime
 from ptflops import get_model_complexity_info
 from cfg import context_length, inst_length, input_length
 from models import *
+#from cfg_lstm import seq_length
+#from models_lstm import *
 
 
 def get_data(arr, s, low, high, device, to_tensor=True):
@@ -152,6 +154,22 @@ def profile_model(model, para=False):
     else:
         constructor = None
     macs, params = get_model_complexity_info(model, (context_length, input_length), as_strings=True,
+                                             input_constructor=constructor, print_per_layer_stat=True, verbose=True)
+    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+
+
+def profile_lstm_model(model, para=False):
+    print("Model info:")
+    if para:
+        def input_constructor(res):
+            x = torch.ones(()).new_empty((1, *res))
+            para = torch.ones(()).new_empty((1, 1))
+            return {'x': x, 'para': para}
+        constructor = input_constructor
+    else:
+        constructor = None
+    macs, params = get_model_complexity_info(model, (seq_length, input_length), as_strings=True,
                                              input_constructor=constructor, print_per_layer_stat=True, verbose=True)
     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
