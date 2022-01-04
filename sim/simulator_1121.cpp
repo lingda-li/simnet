@@ -95,8 +95,10 @@ struct Inst {
   bool read_sim_data(ifstream &trace) {
     for (int i = 0; i < IN_START; i++) {
       trace >> targets[i];
-      if (trace.eof())
+      if (trace.eof()) {
+        assert(i == 0);
         return false;
+      }
       train_data[i] = 0.0;
     }
     assert(targets[COMPLETE_LAT] >= MIN_COMP_LAT || targets[COMPLETE_LAT] == 0);

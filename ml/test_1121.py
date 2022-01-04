@@ -42,6 +42,8 @@ def analyze_lat(args, output, target):
 
     flat_target = target.ravel()
     print("\tErr avg, persentage, and std:", np.average(errs[errs != -1]), "\t", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]), "\t", np.std(errs[errs != -1]))
+    errs /= flat_target + 1
+    print("\tNorm err avg, persentage, and std:", np.average(errs[errs != -1]), "\t", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]), "\t", np.std(errs[errs != -1]))
     his = np.histogram(errs, bins=range(-1, 100))
     print("\tdata percentage:", errs[errs != -1].size / errs.size)
     print("\t", his[0] / errs[errs != -1].size)
