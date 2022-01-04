@@ -5,7 +5,7 @@ from os.path import splitext
 import sys
 
 
-def extract_data(filename, interval=10, skip=5000):
+def extract_data(filename, interval=10, skip=0):
   data = np.genfromtxt(filename, delimiter=',', names=['lat'])
   size = 10000 - skip
   assert size % interval == 0 and interval > 0
@@ -31,10 +31,13 @@ if 'true' in sys.argv[2]:
   output_name += '_true'
   color = 'b'
 elif 'E1DNet' in sys.argv[2]:
+  model_name = 'enet'
   output_name += '_enet'
   color = 'g'
-elif 'CNN3' in sys.argv[2]:
-  output_name += '_3c'
+elif 'CNN' in sys.argv[2]:
+  str_idx = sys.argv[2].find('CNN')
+  model_name = sys.argv[2][str_idx:str_idx+9]
+  output_name += '_' + model_name
   color = 'y'
 
 font = {'size' : 35}
@@ -48,17 +51,19 @@ ax.plot(x, y, color)
 #ax.set_xlabel('10^4 instructions')
 if is_true:
   ax.set_title(sys.argv[1], fontdict={'size': 60})
-ax.set_ylabel('CPI')
-ax.set_xlim(0, 500)
-#if sys.argv[1][0:3] == '505':
-if np.amax(y) >= 5.95 or sys.argv[1][0:3] == '531' or sys.argv[1][0:3] == '505':
-  ax.set_ylim(0, 8)
-elif np.amax(y) > 3.6:
-  ax.set_ylim(0, 6)
 else:
-  ax.set_ylim(0, 4)
+  ax.set_title(model_name, fontdict={'size': 60})
+ax.set_ylabel('CPI')
+#ax.set_xlim(0, 500)
+##if sys.argv[1][0:3] == '505':
+#if np.amax(y) >= 5.95 or sys.argv[1][0:3] == '531' or sys.argv[1][0:3] == '505':
+#  ax.set_ylim(0, 8)
+#elif np.amax(y) > 3.6:
+#  ax.set_ylim(0, 6)
+#else:
+#  ax.set_ylim(0, 4)
 ax.grid(True)
 
 fig.tight_layout()
-fig.savefig('../fig/' + output_name + '.pdf')
-plt.show()
+fig.savefig('fig/' + output_name + '.pdf')
+#plt.show()
