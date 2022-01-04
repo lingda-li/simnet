@@ -17,3 +17,7 @@ rr:
 1121:
 	-rm ml/cfg.py
 	cd ml; ln -s cfg_1121.py cfg.py; cd ..
+
+1221:
+	-rm ml/cfg.py
+	cd ml; ln -s cfg_1221.py cfg.py; cd ..
