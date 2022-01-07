@@ -27,6 +27,7 @@ valid_end = (validbatchnum + validbatchsize) * ori_batch_size
 
 context_length = 111
 inst_length = 50
+input_length = inst_length
 
 num_classes = 10
 min_complete_lat = 6

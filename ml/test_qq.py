@@ -18,11 +18,15 @@ cla_loss_fn = nn.CrossEntropyLoss()
 inst_type = -2
 
 
-def analyze(args, output, lat_target, cla_target, data, cla_output=None):
+def analyze(args, output, lat_target, cla_target=None, cla_output=None):
     lat_target = lat_target.detach().numpy()
-    cla_target = cla_target.detach().numpy()
-    data = data.detach().numpy()
+    if args.no_class:
+        assert cla_target is None
+    else:
+        assert cla_target is not None
+        cla_target = cla_target.detach().numpy()
     for i in range(3):
+        print(i, ":")
         lat_output = output.detach().numpy()
         lat_output = lat_output[:,i]
         cur_lat_target = lat_target[:,i]
@@ -55,9 +59,9 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
 
         print("errors:", errs)
         errs = errs.ravel()
-        errs[errs < 0] = -errs[errs < 0]
+        #errs[errs < 0] = -errs[errs < 0]
         #errs[cur_cla_target == num_classes - 1] = -1
-        print(errs.size)
+        #print(errs.size)
 
         if inst_type >= -1:
             for i in range(errs.size):
@@ -71,10 +75,11 @@ def analyze(args, output, lat_target, cla_target, data, cla_output=None):
             print(errs)
 
         flat_target = cur_lat_target.ravel()
-        print("Err avg, persentage, and std:", np.average(errs[errs != -1]), "\t", np.sum(errs[errs != -1]) / np.sum(flat_target[errs != -1]), "\t", np.std(errs[errs != -1]))
-        his = np.histogram(errs, bins=range(-1, 100))
-        print("data percentage:", errs[errs != -1].size / errs.size)
-        print(his[0] / errs[errs != -1].size)
+        print("\tErr avg, persentage, and std:", np.average(np.abs(errs)), "\t", np.sum(errs) / np.sum(flat_target), "\t", np.std(errs))
+        his = np.histogram(np.abs(errs), bins=range(-1, 100))
+        print("\t", his[0] / errs.size)
+        errs /= flat_target + 1
+        print("\tNorm err avg and std:", np.average(np.abs(errs)), "\t", np.std(errs))
 
 
 def test(args, model, device, test_loader):
@@ -84,7 +89,15 @@ def test(args, model, device, test_loader):
     total_cla_loss2 = 0
     total_cla_loss3 = 0
     with torch.no_grad():
+        if args.no_class:
+            total_output = torch.zeros(0, 3)
+        else:
+            total_output = torch.zeros(0, 3+3*num_classes)
+        total_lat_target = torch.zeros(0, 3)
+        total_cla_target = torch.zeros(0, 3)
         for data, lat_target, cla_target in test_loader:
+            total_lat_target = torch.cat((total_lat_target, lat_target), 0)
+            total_cla_target = torch.cat((total_cla_target, cla_target), 0)
             data, lat_target, cla_target = data.to(device), lat_target.to(device), cla_target.to(device)
             output = model(data)
             total_lat_loss += lat_loss_fn(output[:,0:3], lat_target).item()
@@ -92,27 +105,31 @@ def test(args, model, device, test_loader):
                 total_cla_loss1 += cla_loss_fn(output[:,3:3+num_classes], cla_target[:,0]).item()
                 total_cla_loss2 += cla_loss_fn(output[:,3+num_classes:3+2*num_classes], cla_target[:,1]).item()
                 total_cla_loss3 += cla_loss_fn(output[:,3+2*num_classes:3+3*num_classes], cla_target[:,2]).item()
-            if args.no_cuda:
-                analyze(args, output, lat_target, cla_target, data)
+            if not args.no_cuda:
+                output = output.cpu()
+            total_output = torch.cat((total_output, output), 0)
     total_lat_loss /= len(test_loader)
     if args.no_class:
         print('Test set: Lat Loss: {:.6f}'.format(total_lat_loss), flush=True)
+        analyze(args, total_output, total_lat_target)
     else:
         total_cla_loss1 /= len(test_loader)
         total_cla_loss2 /= len(test_loader)
         total_cla_loss3 /= len(test_loader)
         print('Test set: Lat Loss: {:.6f} \tCla Loss1: {:.6f} \tCla Loss2: {:.6f} \tCla Loss3: {:.6f}'.format(
             total_lat_loss, total_cla_loss1, total_cla_loss2, total_cla_loss3), flush=True)
+        analyze(args, total_output, total_lat_target, total_cla_target)
 
 
 def load_checkpoint(name, model, training=False, optimizer=None):
     assert 'checkpoints/' in name
-    cp = torch.load(name)
+    cp = torch.load(name, map_location=torch.device('cpu'))
     model.load_state_dict(cp['model_state_dict'])
     if training:
         assert optimizer is not None
         optimizer.load_state_dict(cp['optimizer_state_dict'])
     print("Loaded checkpoint", name)
+    print("epoch:", cp['epoch'])
 
 
 def save_ts_model(name, model, device):

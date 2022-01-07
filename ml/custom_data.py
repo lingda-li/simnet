@@ -1,7 +1,8 @@
 import torch
 import numpy as np
 from torch.utils.data import Dataset
-from cfg import data_item_format, min_complete_lat, min_store_lat, context_length, inst_length, input_start, target_length
+from cfg import data_item_format, min_complete_lat, min_store_lat, context_length, inst_length
+#from cfg import input_start, target_length
 
 
 class MemoryMappedDataset(Dataset):
@@ -203,7 +204,7 @@ class CombinedDataset(Dataset):
             item = self.dat2.__getitem__(sub_idx)
             return item[0], item[1], item[2], torch.tensor([0.])
 
-from cfg_lstm import data_item_format, seq_length, inst_length, input_start, datasets
+#from cfg_lstm import data_item_format, seq_length, inst_length, input_start, datasets
 
 class SeqDataset(Dataset):
 
