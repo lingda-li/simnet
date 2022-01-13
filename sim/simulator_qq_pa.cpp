@@ -96,8 +96,11 @@ int main(int argc, char *argv[]) {
   at::Tensor outputTensor;
   SimModule mods[trace_num];
 //#pragma omp parallel for
-  for (int i = 0; i < trace_num; i++)
-    mods[i].init(argv[2*i+3], argv[2*i+4], argv[1], total_num);
+  for (int i = 0; i < trace_num; i++) {
+    bool res = mods[i].init(argv[2*i+3], argv[2*i+4], argv[1], total_num);
+    if (!res)
+      return 0;
+  }
 #if defined(COMBINED)
   int output_stride = (CLASS_NUM+1)*3;
 #else
@@ -107,7 +110,7 @@ int main(int argc, char *argv[]) {
   struct timeval total_start, total_end;
   gettimeofday(&total_start, NULL);
   while(!mods[0].eof) {
-#pragma omp parallel for
+#pragma omp parallel for num_threads(trace_num)
     for (int i = 0; i < trace_num; i++)
       mods[i].preprocess(inputPtr + ML_SIZE*i);
     if (mods[0].eof) {
@@ -123,7 +126,7 @@ int main(int argc, char *argv[]) {
     outputTensor = lat_module.forward(inputs).toTensor();
     outputTensor = outputTensor.to(at::kCPU);
     float *output = outputTensor.data_ptr<float>();
-#pragma omp parallel for
+#pragma omp parallel for num_threads(trace_num)
     for (int i = 0; i < trace_num; i++)
       mods[i].postprocess(output + output_stride*i);
   }
