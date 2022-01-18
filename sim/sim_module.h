@@ -264,10 +264,10 @@ bool SimModule::init(const char *trace_name, const char *aux_trace_name, const c
   strftime(buffer,sizeof(buffer),"%m%d%y",timeinfo);
   string time_str(buffer);
   ipc_trace_name += "_" + time_str + ".ipc";
-  ofstream ipc_trace(ipc_trace_name);
+  ipc_trace.open(ipc_trace_name);
   if (!ipc_trace.is_open()) {
     cerr << "Cannot open ipc trace file.\n";
-    return 0;
+    return false;
   }
   cout << "Write IPC trace to " << ipc_trace_name << "\n";
 #endif
@@ -361,9 +361,9 @@ void SimModule::postprocess(float *output) {
     int_store_lat = classes[2] + MIN_ST_LAT - 1;
 #endif
 #ifdef DUMP_ML_INPUT
-    int_fetch_lat = newInst->trueFetchTick;
-    int_complete_lat = newInst->trueCompleteTick;
-    int_store_lat = newInst->trueStoreTick;
+  int_fetch_lat = newInst->trueFetchTick;
+  int_complete_lat = newInst->trueCompleteTick;
+  int_store_lat = newInst->trueStoreTick;
 #endif
   if (is_scale_pred) {
     int_fetch_lat += round(((int)newInst->trueFetchTick - int_fetch_lat) * scale_factor);
@@ -426,7 +426,7 @@ void SimModule::finish(const char *trace_name, const char *aux_trace_name) {
 #endif
   unsigned long long inst_num = fetched_inst_num;
   cout << inst_num << " instructions finish by " << curTick << "\n";
-  cout << "Fetch finish by " << totalFetchTick << " (err: " << -(double)totalFetchDiff / (totalFetchTick + totalFetchDiff)<< ")\n";
+  cout << "Fetch finish by " << totalFetchTick << " (err: " << -(double)totalFetchDiff / (totalFetchTick + totalFetchDiff)<< ") (true: " << totalFetchTick + totalFetchDiff << ")\n";
   cout << "Fetch Diff: " << totalFetchDiff << " (" << (double)totalFetchDiff / inst_num << " per inst), Absolute Diff: " << totalAbsFetchDiff << " (" << (double)totalAbsFetchDiff / inst_num << " per inst)\n";
   cout << "Complete Diff: " << totalCompleteDiff << " (" << (double)totalCompleteDiff / inst_num << " per inst, Absolute Diff: " << totalAbsCompleteDiff << " (" << (double)totalAbsCompleteDiff / inst_num << " per inst)\n";
   cout << "Store Diff: " << totalStoreDiff << " (" << (double)totalStoreDiff / inst_num << " per inst, Absolute Diff: " << totalAbsStoreDiff << " (" << (double)totalAbsStoreDiff / inst_num << " per inst)\n";
