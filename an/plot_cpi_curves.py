@@ -8,7 +8,7 @@ import sys
 
 def extract_data(filename, interval=10, jump=1, skip=0):
   data = np.genfromtxt(filename, delimiter=',', names=['lat'])
-  size = 10000 - skip
+  size = data['lat'].size - skip
   assert size % interval == 0 and interval > 0
   x = range(0,int(size/interval*jump),jump)
   y = data['lat'][skip::interval]
@@ -41,7 +41,7 @@ for i in range(2, len(sys.argv)):
     str_idx = file_name.find('CNN')
     label = file_name[str_idx:str_idx+9]
   
-  x, y = extract_data(file_name, 20, 2)
+  x, y = extract_data(file_name, 200, 2)
   ax.plot(x, y, c=c, label=label)
   if 'true' in file_name:
     true_y = y
