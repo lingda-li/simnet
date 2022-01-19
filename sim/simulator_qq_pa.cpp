@@ -117,6 +117,9 @@ int main(int argc, char *argv[]) {
       cout << "Finish early with shorter trace.\n";
       break;
     }
+#ifdef RUN_TRUTH
+    float *output = NULL;
+#else
     inputs.clear();
 #ifdef GPU
     inputs.push_back(input.cuda());
@@ -126,6 +129,7 @@ int main(int argc, char *argv[]) {
     outputTensor = lat_module.forward(inputs).toTensor();
     outputTensor = outputTensor.to(at::kCPU);
     float *output = outputTensor.data_ptr<float>();
+#endif
 #pragma omp parallel for num_threads(trace_num)
     for (int i = 0; i < trace_num; i++)
       mods[i].postprocess(output + output_stride*i);
