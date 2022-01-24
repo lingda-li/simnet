@@ -42,31 +42,9 @@ benchmark_list = [
   '999.specrand_ir'
 ]
 
-model_list = [
-  '',
-]
-
 for benchmark in benchmark_list:
   args = [benchmark]
-  for model in model_list:
-    ipc_name = 
+  for model in sys.argv[1:]:
+    ipc_name = dataset + '/' + benchmark + trace_prefix + '.tr_' + model + '.ipc'
     args.append(ipc_name)
-  plot_cpi_curves()
-  tr_file_name = dataset + "/" + benchmark + trace_prefix + ".tr"
-  aux_file_name = dataset + "/" + benchmark + trace_prefix + ".tra"
-  if not(os.path.exists(tr_file_name)):
-    print("Cannot open trace", tr_file_name)
-    sys.exit()
-  if not(os.path.exists(aux_file_name)):
-    print("Cannot open aux trace.")
-    sys.exit()
-  cmd.extend([tr_file_name, aux_file_name])
-
-os.environ["OMP_NUM_THREADS"] = str(len(benchmark_list))
-print("Executing  %s" % " ".join(cmd))
-process = Popen(cmd, stdout=PIPE)
-output, err = process.communicate()
-exit_code = process.wait()
-print(output.decode("utf-8"),end='')
-with open("res/sp.txt","a") as f:
-  f.write(output.decode("utf-8"))
+  plot_cpi_curves(args)
