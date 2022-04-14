@@ -55,13 +55,6 @@ int main(int argc, char *argv[])
 //int arg_idx = 4;
 //float *varPtr = read_numbers(argv[arg_idx++], TD_SIZE);
 
-for (int i = 0; i < TD_SIZE; i++) {
-    default_val[i] = 0;
-  }
-  for (int i = TD_SIZE; i < ML_SIZE; i++)
-    default_val[i] = default_val[i % TD_SIZE];
-
-
 //cout<< argv[3] << endl;
 torch::jit::script::Module lat_module;
   try {
@@ -87,24 +80,22 @@ at::Tensor input = torch::ones({atoi(argv[4]), ML_SIZE});
 float *inp= input.data_ptr<float>();
 //cout<<"Input dims: "<< input_dims << ", output dims: "<<output_dims << endl;
 float *inputPtr,*inputPtr1, *inputPtr2, *output;
-H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * (ML_SIZE + N*Stream_width) * Total_Trace));
+H_ERR(cudaMalloc((void **)&inputPtr, sizeof(float) * (ML_SIZE + TD_SIZE*(Stream_width-1)) * Total_Trace));
 cudaMemset(inputPtr, 0, ML_SIZE + N*Stream_width);
-H_ERR(cudaMalloc((void **)&inputPtr1, sizeof(float) * (ML_SIZE + N*Stream_width) * Total_Trace));
-H_ERR(cudaMalloc((void **)&inputPtr2, sizeof(float) * (ML_SIZE + N*Stream_width) * Total_Trace));
+H_ERR(cudaMalloc((void **)&inputPtr1, sizeof(float) * (ML_SIZE + TD_SIZE*(Stream_width-1)) * Total_Trace));
+H_ERR(cudaMalloc((void **)&inputPtr2, sizeof(float) * (ML_SIZE + TD_SIZE*(Stream_width-1)) * Total_Trace));
 H_ERR(cudaMalloc((void **)&output, sizeof(float) * Total_Trace * 33));
 //cout<< "Input dim: "<< ML_SIZE * Total_Trace << endl;
 float *stream;
 stream = (float *)malloc(Stream_width * TD_SIZE * sizeof(float));
 float *trace;
 Tick *aux_trace;
-trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
-aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
-
-
+//trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
+//aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
 int Batch_size = Instructions / Total_Trace;
 //printf("Batchsize: %d\n",Batch_size);
 if(Instructions%Total_Trace!=0){
-        //printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
+        printf("Prev bsize: %d, mew bsize: %d\n", Batch_size, Batch_size + 1);
         Batch_size= Batch_size +1;
         unsigned long long int new_instr=  (Batch_size+1)*Total_Trace;
         trace = (float *)malloc(TRACE_DIM * new_instr * sizeof(float));
@@ -116,10 +107,9 @@ if(Instructions%Total_Trace!=0){
                 index+=1;
          }
 }
-else {
+else{
         trace = (float *)malloc(TRACE_DIM * Instructions * sizeof(float));
-        aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));
-}
+        aux_trace = (Tick *)malloc(AUX_TRACE_DIM * Instructions * sizeof(Tick));}
 read_trace_mem(argv[1], argv[2], trace, aux_trace, Instructions);
 //omp_set_num_threads(1);
 double measured_time = 0.0;
@@ -192,33 +182,49 @@ int total_iterations= Batch_size + W;
 initialization<<<4096,32>>>(rob_d,Total_Trace);
 H_ERR(cudaDeviceSynchronize());
 int N_flag=0;
+inputPtr= inputPtr1;
+float *next= inputPtr2;
+double count=0;
+//**********************First copy
 while (iteration < total_iterations){
-  //if((iteration % 2)==0){inputPtr=inputPtr1;}
-  //else {inputPtr=inputPtr2;}
-  //{cout << "\nIteration: " << iteration << endl;}
-  double st = wtime();
-  #pragma omp parallel for
+  {cout << "\nIteration: " << iteration << endl;}
+    N_flag= iteration%Stream_width;
+    //printf("N flag: %d, current: %p, next: %p\n",N_flag, inputPtr, next);
+if(N_flag==0){
+  double st= wtime();
+  if (iteration!=0){
+  	printf("**shifted**\n");
+	shift<<<4096, 64>>>(inputPtr, next, rob_d, Total_Trace);
+	float *temp_inp= inputPtr;
+  	inputPtr= next;
+  	next= temp_inp;
+  }
+  printf("Copied\n");
+      #pragma omp parallel for
   for (int i = 0; i < Total_Trace; i++)
   {
     index_all[i]+= Stream_width;
     //if (!inst[i].read_sim_mem(trace_all[i], aux_trace_all[i],index_all[i]))
     if (!inst[i].batched_copy(trace_all[i], aux_trace_all[i], stream , index_all[i]))
     {cout << "Error\n";}
-    display(stream, TD_SIZE, Stream_width);
+    //display(stream, TD_SIZE, Stream_width);
     trace_all[i] += (Stream_width * TRACE_DIM); 
     aux_trace_all[i] += (Stream_width * AUX_TRACE_DIM);
   }
   double check1 = wtime();
   red+= (check1-st);
   H_ERR(cudaMemcpy(inst_d, inst, sizeof(Inst) * Total_Trace, cudaMemcpyHostToDevice));
-   H_ERR(cudaMemcpy(inputPtr, stream, sizeof(float) * TD_SIZE * Stream_width, cudaMemcpyHostToDevice));
+  H_ERR(cudaMemcpy(inputPtr, stream, sizeof(float) * TD_SIZE * Stream_width, cudaMemcpyHostToDevice));
+  //printf("inpt: %p, stream: %p\n", inputPtr, stream);
   double check2 = wtime();
-  tr+= (check2-check1);
+  count+= (check2-check1);
   //cout<<"Data transferred\n";
   H_ERR(cudaMemcpy(index_all_gpu, index_all, sizeof(int) * Total_Trace, cudaMemcpyHostToDevice));
   gettimeofday(&t, NULL);
+}
+  printf("N flag: %d, current: %p, next: %p\n",N_flag, inputPtr, next);
   // **********************************Start other for loop from here *************************************************
-  preprocess<<<4096, 32>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu, iteration, W, Batch_size);
+  preprocess<<<4096, 32>>>(rob_d,sq_d,inst_d, default_val_d, inputPtr, status, Total_Trace, index_all_gpu, iteration, W, Batch_size,N_flag);
   H_ERR(cudaDeviceSynchronize());
   //cout<<"Preprocess done \n"<<endl; 
   //double check3= wtime();
@@ -242,7 +248,6 @@ while (iteration < total_iterations){
   at::Tensor outputs = lat_module.forward(inputs).toTensor();
   outputs=outputs.to(at::kCPU);
   cudaStreamSynchronize(0);
- 
   //cout<<outputs<<endl;
   double check4= wtime();
   //inf+= (check4-check3);
@@ -265,6 +270,7 @@ double e = wtime();
 double end_ = wtime();
 double total_time = check3.tv_sec - t.tv_sec + (check3.tv_usec - t.tv_usec) / 1000000.0;
 printf("Avg: Total: %f, Pre %f\n",(end_-start_)/Instructions,total_time/Instructions);
+printf("Time: %f\n", count/iteration);
 return 0;
 fclose(pFile);
 //fclose(outFile);
@@ -288,7 +294,7 @@ H_ERR(cudaDeviceSynchronize());
 //H_ERR(cudaMemcpy(&total_tick[i], total_tick_d[i], sizeof(Tick), cudaMemcpyDeviceToHost));
 total_time = total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) / 1000000.0;
 cout <<total_time<< endl;
-
+printf("Time: %f\n", count);
 return 0;
 cout << Instructions << " instructions finish by " << (curTick - 1) << "\n";
 cout << "Time: " << total_time << "\n";

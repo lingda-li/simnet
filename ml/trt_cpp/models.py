@@ -88,6 +88,7 @@ class CNN3(nn.Module):
     def forward(self, x):
         #x = x.view(-1, inst_length, context_length)
         x = x.view(-1, context_length, inst_length).transpose(2,1)
+        import ipdb; ipdb.set_trace()
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -96,6 +97,7 @@ class CNN3(nn.Module):
         x = self.fc2(x)
         return x
 
+#CNN3_F(3,2,128,2,1,2,256,2,0,2,256,2,0,1024)
 class CNN3_F(nn.Module):
     def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, f1):
         super(CNN3_F, self).__init__()
@@ -115,7 +117,9 @@ class CNN3_F(nn.Module):
 
     def forward(self, x):
         #x = x.view(-1, inst_length, context_length)
-        x = x.view(-1, context_length, inst_length).transpose(2,1)
+        #import ipdb; ipdb.set_trace()
+        #x = x.view(-1, context_length,inst_length).transpose(2,1)
+        x = x.view(-1, inst_length, context_length)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
@@ -123,6 +127,37 @@ class CNN3_F(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+class CNN3_F_D(nn.Module):
+    def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, ck3, ch3, cs3, cp3, f1):
+        super(CNN3_F_D, self).__init__()
+        #self.conv1 = nn.Conv1d(in_channels=inst_length, out_channels=ch1, kernel_size=ck1, stride=cs1, padding=cp1)
+        self.conv2 = nn.Conv1d(in_channels=ch1, out_channels=ch2, kernel_size=ck2, stride=cs2, padding=cp2)
+        self.conv3 = nn.Conv1d(in_channels=ch2, out_channels=ch3, kernel_size=ck3, stride=cs3, padding=cp3)
+        self.f1_input = math.floor((context_length + 2 * cp1 - ck1) / cs1 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp2 - ck2) / cs2 + 1)
+        print(self.f1_input)
+        self.f1_input = math.floor((self.f1_input + 2 * cp3 - ck3) / cs3 + 1)
+        print(self.f1_input)
+        self.f1_input *= ch3
+        self.f1_input = int(self.f1_input)
+        self.fc1 = nn.Linear(self.f1_input, f1)
+        self.fc2 = nn.Linear(f1, out)
+
+    def forward(self, x):
+        #x = x.view(-1, inst_length, context_length)
+        #import ipdb; ipdb.set_trace()
+        #print(x.shape)
+        x=x.view(-1,128,56)
+        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = x.view(-1, self.f1_input)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+
 
 class CNN2_F(nn.Module):
     def __init__(self, out, ck1, ch1, cs1, cp1, ck2, ch2, cs2, cp2, f1):

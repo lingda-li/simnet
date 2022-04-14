@@ -36,7 +36,7 @@
 //#define DEBUG
 #define WARP
 //#define TRACK
-#define Stream_width 1 
+#define Stream_width 3 
 
 typedef long unsigned Tick;
 typedef long unsigned Addr;
@@ -66,7 +66,7 @@ void display(float *data, int size, int rows)
   {
     for (int j = 0; j < size; j++)
     {
-      printf("%.2f\t", data[i * size + j]);
+      printf("%.0f  ", data[i * size + j]);
       /*
       if (data[i * size + j]!=0){
           printf("%.2f  ", data[i * size + j]);}
@@ -158,8 +158,8 @@ struct Inst
 
 bool batched_copy(float *trace, uint64_t *aux_trace, float *stream, int index){
   memcpy(stream, trace, sizeof(float)*TD_SIZE*Stream_width);
-  printf("Trace: \n");
-  display(trace, TD_SIZE, Stream_width);
+  //printf("Trace: \n");
+  //display(trace, TD_SIZE, Stream_width);
   pc = aux_trace[0];
   isAddr = aux_trace[1];
   addr = aux_trace[2];
@@ -169,8 +169,9 @@ bool batched_copy(float *trace, uint64_t *aux_trace, float *stream, int index){
     for (int i = 0; i < 3; i++)
       dwalkAddr[i] = aux_trace[7 + i];
     return true;
-}
+  }
 };
+
 struct SQ {
   Inst insts[SQSIZE+1];
   int size= SQSIZE;
@@ -312,8 +313,8 @@ struct ROB
   int size= ROBSIZE;
   int head = 0;
   int tail = 0;
-  int ml_head = Stream_width;
-  int ml_tail = Stream_width;
+  int ml_head = Stream_width;   // row ID
+  int ml_tail = Stream_width;   // row ID
   int len = 0;
   int rob_num=0;
   float *input_Ptr;
@@ -325,26 +326,6 @@ struct ROB
     head=h; tail=t;
   }
 
-  __device__ void shift(float *inputPtr){
-  //if(threadIdx.x==0){printf("shifted, head:%d, tail:%d\n", ml_head, ml_tail);}
-    int index= threadIdx.x;
-    int total= TD_SIZE*(ml_tail +1); 
-    int offset= TD_SIZE* (WIDTH-1);
-    while (index<total)
-  	{       
-	  inputPtr[index+offset]= inputPtr[index];
-	  index+=WARPSIZE;	
-	}
-  // Update the ml index for each instruction in ROB
-  int start= threadIdx.x + ml_tail+1;
-  while(start<=ml_head){
-    //printf("Previous: %d, new: %d\n",insts[start].ml_pos, insts[start].ml_pos+WIDTH);
-    insts[start].ml_pos+=WIDTH;
-    start+=WARPSIZE;
-  }
-  ml_tail=ml_tail+WIDTH;
-  ml_head=ml_head+WIDTH;
-  }
 
 //__host__ __device__ int update_ml_tail(int index){ml_head=ml_head-1;}
   __host__ __device__ int inc(int input)
@@ -379,6 +360,7 @@ struct ROB
     int old_tail = tail;
     tail = inc(tail);
     insts[old_tail].ml_pos=ml_tail;
+    printf("tail: %d, ml_tail: %d, len: %d\n", tail, ml_tail, len);
     //printf("%p\n",insts[old_tail]);
     //printf("old_tail: %d, tail: %d, ml_tail: %d, written: %d\n",old_tail,tail,ml_tail, insts[old_tail].ml_pos);
     ml_tail-=1;
@@ -451,9 +433,9 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
       //printf("I:%d,  Context: %d, previous: %.2f\n",i, context, insts[context].train_data[0]);
       //printf("Context: %d, Before, %.3f, %.3f, Next: %d\n", context, inst[0], inst[1], dec(i - 32));
       //insts[context].train_data[0] += tick;
-      ml_context_address[0] += tick; 
+      //ml_context_address[0] += tick; 
       //printf("ROB: Context: %d, tick: %lu, %.2f\n", context, tick, insts[context].train_data[0]);
-      assert(ml_context_address[0] >= 0.0);
+      //assert(ml_context_address[0] >= 0.0);
       i += WARPSIZE;
     }
     __syncwarp();
@@ -490,8 +472,6 @@ __device__ int retire_until(Tick tick, SQ *sq = nullptr) {
 		        dwalkAddr[i] = new_inst.dwalkAddr[i];
 			    }
           //printf("Starting\n");
-
-   if(warpTID==0){memcpy(inputs + ml_tail*TD_SIZE, insts[dec(tail)].train_data, sizeof(float)*TD_SIZE);}
     __syncwarp();
     int i = warpTID;
    num[W]=1;
@@ -836,8 +816,41 @@ printf("%.0f,%.0f,%.0f\n", ml_context_address[0], ml_context_address[1], ml_cont
 
 
 
+  __global__ void shift(float *source, float *destination, ROB *rob_d, int Total_Trace){
+  //if(threadIdx.x==0){printf("shifted, head:%d, tail:%d\n", ml_head, ml_tail);}
+    int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
+   if (TID==0){printf("sift started: source: %p, destination: %p, offset: %d\n",source,destination,TD_SIZE* (Stream_width));}
+   //  __syncthreads();
+  int warpID = TID / WARPSIZE;
+  int warpTID = TID % WARPSIZE;
+  int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
+   int index= warpID;
+    while(index < Total_Trace){
+    	ROB *rob= &rob_d[index];
+	int total= TD_SIZE*(rob->ml_head+1);
+	int offset= TD_SIZE* (Stream_width);
+    	int i=warpTID;	
+	while (i<total){       
+	  destination[i+offset]= source[i];
+	  printf("source: %f, destination: %f\n",destination[i+offset],source[index] );
+	  i+=WARPSIZE;	
+	}
+  	// Update the ml index for each instruction in ROB
+  	int start= threadIdx.x + rob->ml_tail+1;
+  	while(start<=rob->ml_head){
+    		//printf("Previous: %d, new: %d\n",insts[start].ml_pos, insts[start].ml_pos+WIDTH);
+    		rob->insts[start].ml_pos+=Stream_width;
+    		start+=WARPSIZE;
+  	}
+  	rob->ml_tail=rob->ml_tail+Stream_width;
+  	rob->ml_head=rob->ml_head+Stream_width;
+    index+=TotalWarp;
+    }
+  }
+
+
 __global__ void
-preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *index_all, int iteration, int W, int Batch_size)
+preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr, int *status, int Total_Trace, int *index_all, int iteration, int W, int Batch_size, int window_index)
 //preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr,  int *status, int Total_Trace)
 { 
   int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -850,7 +863,7 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
   //int retired=0;
   ROB *rob;
   SQ *sq;
-  float *input_Ptr;
+  float *input_device, *input_window;
 #ifdef WARP
   index = warpID;
   Total = TotalWarp;
@@ -873,10 +886,11 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     Tick curTick = rob->curTick;
     Tick lastFetchTick = rob->lastFetchTick;
     //printf("Index: %d\n",index);
-    input_Ptr= inputPtr + (ML_SIZE+ WIDTH*TD_SIZE) * index;  
+    input_device= inputPtr + (ML_SIZE+ WIDTH*TD_SIZE) * index;   
     //int old_head= rob->head;
     //printf("InputPtr: %p\n", input_Ptr);
-    if(rob->ml_tail==-1){rob->shift(input_Ptr);}
+    
+        
     if(warpTID==0){
             Inst *newInst = rob->add();
 	    //printf("head: %d, tail: %d, ml_head:%d, ml_tail:%d \n", rob->head, rob->tail, rob->ml_head, rob->ml_tail);
@@ -889,13 +903,13 @@ preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr
     //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
     if (curTick != lastFetchTick)
     {
-      rob->update_fetch_cycle(curTick - lastFetchTick, input_Ptr);
+      rob->update_fetch_cycle(curTick - lastFetchTick, input_device);
       __syncwarp();
       sq->update_fetch_cycle(curTick - lastFetchTick);
     }
    //if(warpTID==0){ printf("both retired.. \n");} 
     __syncwarp();
-    //int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
+    int rob_num= rob->make_input_data(input_device, curTick, insts[index]);
         __syncwarp();
     //int sq_num= sq->make_input_data(input_Ptr + rob_num * TD_SIZE, curTick, insts[index]);
     
@@ -927,15 +941,13 @@ if(num < CONTEXTSIZE)
      //printf("default value copied.. \n");
     }
      */
-    if (warpTID == 0)
-    {
-      
-	  printf("Input_Ptr\n");
-      dis(input_Ptr, TD_SIZE, Stream_width+2);
+    if (warpTID == 0){  
+      printf("stream width:%d, window_index: %d, offset: %d\n", Stream_width, window_index, window_index*TD_SIZE);
+      printf("Input device:%p, input window: %p\n", input_device, input_window);
+      dis(input_device, TD_SIZE, Stream_width+3);
     }
-
-__syncwarp();
-    index += Total;
+   __syncwarp();
+   index += Total;
   }
 }
 

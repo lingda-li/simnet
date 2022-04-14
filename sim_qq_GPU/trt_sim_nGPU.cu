@@ -40,115 +40,7 @@ void first( One_DConv *layer, int batch , char *w, char *b){
 
 
 
-__global__ void
-preprocess(ROB *rob_d,SQ *sq_d, Inst *insts, float *default_val, float *inputPtr,  int *status, int Total_Trace)
-{
-  //if(TID==0) {printf("preprocess started.. \n");}
-  int TID = (blockIdx.x * blockDim.x) + threadIdx.x;
-  //if(TID==0) {printf("preprocess started.. \n");}
-  int warpID = TID / WARPSIZE;
-  int warpTID = TID % WARPSIZE;
-  int TotalWarp = (gridDim.x * blockDim.x) / WARPSIZE;
-  int index, Total;
-  int retired=0;
-  ROB *rob;
-  SQ *sq;
-  float *input_Ptr;
-#ifdef WARP
-  index = warpID;
-  Total = TotalWarp;
-#else
-  index = blockIdx.x;
-  Total = gridDim.x;
-#endif
-  while (index < Total_Trace)
-  {
-    rob= &rob_d[index];
-    sq= &sq_d[index];
-    Tick curTick = rob->curTick;
-    Tick lastFetchTick = rob->lastFetchTick;
-    input_Ptr= inputPtr + ML_SIZE * index;  
-    //int old_head= rob->head;
-    //printf("InputPtr: %p\n", input_Ptr);
-if (warpTID == 0)
-    {
-      //printf("Retiring till...%d \n", rob->curTick);
-      if (status[index]==1)
-      {                       
-	      //retired = sq->retire_until(curTick);
-	      //printf("sq retired.. \n");
-	      //retired = rob->retire_until(curTick, sq); 
-	      //printf("rob retired.. \n");
-#ifdef DEBUG
-              printf("Retire until: %ld, Retired: %d\n",curTick, retired);
-#endif
-      }
-    }
-    __syncwarp();
-    if(warpTID==0){
-            Inst *newInst = rob->add();
-	    //printf("tail: %d\n", rob->tail);
-            memcpy(newInst, &insts[index], sizeof(Inst));
-	    //printf("mem copied.. \n");
-            //inst_copy(&rob->insts[rob->tail],&insts[index]);  
-    }
-    __syncwarp();
-    //printf("Curtick: %ld, lastFetchTick: %ld\n", curTick, lastFetchTick);
-    if (curTick != lastFetchTick)
-    {
-      rob->update_fetch_cycle(curTick - lastFetchTick);
-      __syncwarp();
-      sq->update_fetch_cycle(curTick - lastFetchTick);
-    }
-   //if(warpTID==0){ printf("both retired.. \n");} 
-    __syncwarp();
-    int rob_num= rob->make_input_data(input_Ptr, curTick, insts[index]);
-    __syncwarp();
-    int sq_num= sq->make_input_data(input_Ptr + rob_num * TD_SIZE, curTick, insts[index]);
-    __syncwarp();
-    int num= rob_num + sq_num;
-    // copy default values
-/*
-    if(num < CONTEXTSIZE && warpTID==0)
-    {
-     printf("%d, %d,",rob_num,sq_num);  
-     memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
-    //printf("default value copied.. \n");
-    }
-*/
-//if(warpTID==0){printf("%d, %d,",rob_num,sq_num);}
-#ifdef COPIER
-    if(num < CONTEXTSIZE)
-    {
-     //printf("%d, %d,",rob_num,sq_num);
-     //memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
-     float *d_p= input_Ptr+num*TD_SIZE;
-     float *s_p= default_val+num*TD_SIZE;
-     copier(d_p,s_p, (CONTEXTSIZE-num)*TD_SIZE);
-     __syncwarp();
-     //printf("default value copied.. \n");
-    }
-#else
 
-if(num < CONTEXTSIZE && warpTID==0)
-    {
-     //printf("%d, %d,",rob_num,sq_num);  
-     memcpy(input_Ptr+num*TD_SIZE, default_val +num*TD_SIZE, sizeof(float)*(CONTEXTSIZE-num)*TD_SIZE);
-    //printf("default value copied.. \n");
-    }
-#endif
-
-#ifdef DEBUG
-    if (warpTID == 0)
-    {
-      printf("Input_Ptr\n");
-      dis(input_Ptr, TD_SIZE, 6);
-    }
-#endif
-    __syncwarp();
-    index += Total;
-  }
-}
 
 
 void display(float *data, int size, int rows)
@@ -336,14 +228,15 @@ H_ERR(cudaMalloc((void **)&rand_inp, sizeof(float)*Total_Trace*7168));
       H_ERR(cudaMalloc((void **)&rob_d[i], sizeof(ROB)*ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&sq_d[i], sizeof(SQ)*ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&inst_d[i], sizeof(Inst)*ROB_per_GPU));
-      H_ERR(cudaMalloc((void **)&inputPtr[i], sizeof(float) * ML_SIZE * ROB_per_GPU));
+      H_ERR(cudaMalloc((void **)&inputPtr[i], sizeof(float) * (ML_SIZE) * ROB_per_GPU));
       H_ERR(cudaMalloc((void **)&output[i], sizeof(float) * ROB_per_GPU * output_dim));
-      buffers[i][0]= rand_inp;
+      buffers[i][0]= inputPtr[i];
       buffers[i][1]= output[i];
+      cudaMemset(inputPtr[i], 0, (ML_SIZE+WIDTH*TD_SIZE));
       // For factor, mean and default values
       H_ERR(cudaMalloc((void **)&default_val_d[i], sizeof(float) * (TD_SIZE)));
       H_ERR(cudaMemcpy(default_val_d[i], &default_val, sizeof(float) * TD_SIZE, cudaMemcpyHostToDevice));
-         }
+}
 
 struct timeval total_start, total_end;
 int iteration = 0;
@@ -355,7 +248,9 @@ pFile= fopen ("trtcustom.bin", "wb");
 #endif
 //printf("Check: %.2f\n", trace_all[0][Instructions*TRACE_DIM-1]);
 gettimeofday(&total_start, NULL);
-//printf("I: %d, Input: %p, Output: %p\n",0,inputPtr[0],output[0]);
+initialization<<<4096,32>>>(rob_d[0], Total_Trace);
+H_ERR(cudaDeviceSynchronize());
+int N_flag=0;
 while (iteration < Batch_size){
   //if((iteration % 50)==0){
   //cout << "\nIteration: " << iteration << endl;
@@ -380,33 +275,46 @@ while (iteration < Batch_size){
 struct timeval s1, s2;
 #pragma omp parallel for
   for (int i = 0; i < nGPUs; i++) {
-	   int pid= omp_get_thread_num();
-        //if(pid==0){cout<<omp_get_num_threads()<<endl;}
+     int pid= omp_get_thread_num();
      gettimeofday(&s1, NULL);
      time_t s_time = (s1.tv_sec * 1000) + (s1.tv_usec / 1000);
      H_ERR(cudaSetDevice(i));
      H_ERR(cudaMemcpy(inst_d[i], inst[i], sizeof(Inst) * ROB_per_GPU, cudaMemcpyHostToDevice));
     //double t1= wtime();
-     //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
-    preprocess<<<4096, 64>>>(rob_d[i], sq_d[i], inst_d[i], default_val_d[i], inputPtr[i], status[i], ROB_per_GPU);
+    //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
+    //double t1= wtime();
+    //preprocess<<<4096, 64>>>(rob_d[i], sq_d[i], inst_d[i], default_val_d[i], inputPtr[i], status[i], ROB_per_GPU);
     H_ERR(cudaDeviceSynchronize());
+    //double check3= wtime();
+    //pre+= check3-t1;
     //cout << "Preprocess done\n";
     //double check3= wtime();
     //if(iteration!=0){pre+= (check3-t1);}
     //cout<< (check3-t1) << endl;    
     // fwrite(inp, sizeof(float), ML_SIZE, pFile); 
     //printf("I: %d, buffer: %p, buffer[0]: %p, buffer[1]: %p\n",i,buffers[i], buffers[i][0], buffers[i][1]);
+    //double t1= wtime();
+    N_flag= iteration % WIDTH;
+    //int input_offset= (WIDTH-N_flag-1)*TD_SIZE;
+    cout<<buffers[i][0]<<endl;
+    //buffers[i][0]= inputPtr[i] + input_offset;
+    cout<<buffers[i][0]<<endl;
+    //Conv_thread<<<int(Total_Trace/2),128>>>(layer_device, X_device,Total_Trace, N_flag);
+    //__global__ void transpose(float *input, float *output, int shift, int batch){
     double t1= wtime();
-    //context[i]->enqueueV2(buffers[i], 0, nullptr);
-    //H_ERR(cudaStreamSynchronize(0));
-
-    Conv_thread<<<int(Total_Trace/2),128>>>(layer_device, X_device,Total_Trace);
+    transpose<<<480,128>>>(inputPtr[i],output[i],N_flag, Total_Trace);
     H_ERR(cudaDeviceSynchronize());
     double check3= wtime();
-    cout<< ((check3-t1)/Total_Trace)*1000000 << endl;
+    pre+= check3-t1;
+    cout<<"Trans:" << ((check3-t1)/Total_Trace)*1000000 << endl;
+    t1= wtime();
+    context[i]->enqueueV2(buffers[i], 0, nullptr);
+    H_ERR(cudaStreamSynchronize(0));
+    check3= wtime();
+    cout<<"inf: " << ((check3-t1)/Total_Trace)*1000000 << endl;
     //cout<<"Inference done\n";
     //printf("I: %d, Input: %p, Output: %p\n",i,inputPtr[i],output[i]);
-    update<<<4096,64>>>(rob_d[i], sq_d[i], output[i], status[i], ROB_per_GPU, output_dim);
+    //update<<<4096,64>>>(rob_d[i], sq_d[i],output[i], inputPtr[i], status[i], ROB_per_GPU, output_dim);
     H_ERR(cudaDeviceSynchronize());
     gettimeofday(&s2, NULL);
     time_t e_time = (s2.tv_sec * 1000) + (s2.tv_usec / 1000);
@@ -419,8 +327,8 @@ struct timeval s1, s2;
   time_t e_time = (s.tv_sec * 1000) + (s.tv_usec / 1000);
    //cout<<"Trace: "<<i<<", Stime: " << s_time <<", etime: " << e_time<<endl;    
 }
-printf("Avg time: %f\n",pre/Instructions);
-return 0;
+printf("Avg time: %f\n",(pre/Instructions)*1000000);
+//return 0;
 #ifdef DEBUG
   fclose(pFile);
 #endif

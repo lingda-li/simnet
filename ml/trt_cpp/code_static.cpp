@@ -21,7 +21,7 @@ using namespace std;
 class Logger : public nvinfer1::ILogger
 {
 public:
-    void log(Severity severity, const char* msg) override {
+    void log(Severity severity, const char* msg) noexcept override {
         // remove this 'if' if you need more logged info
 	//if ((severity == Severity::kERROR) || (severity == Severity::kINTERNAL_ERROR)) 
 	{
@@ -85,7 +85,7 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
         printf("Half flag\n");
 	config->setFlag(nvinfer1::BuilderFlag::kFP16);
     }
-
+	/*
     if (builder->platformHasFastInt8() && (prec==2)){
 	//config->setFlag(nvinfer1::BuilderFlag::kFP16);
 	printf("Int8 flag");
@@ -93,7 +93,7 @@ void parseOnnxModel(const std::string& model_path, TRTUniquePtr<nvinfer1::ICudaE
 	builder->setInt8Calibrator(nullptr);
 	//config->setFlag(nvinfer1::BuilderFlag::kINT8);
     }
-
+    */
     
     // we have only one image in batch
     builder->setMaxBatchSize(batch_size);
