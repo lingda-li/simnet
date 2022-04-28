@@ -1,50 +1,67 @@
-from subprocess import Popen, PIPE
-
 import sys
 import os
-from plot_cpi_curves import plot_cpi_curves
+import subprocess
+from subprocess import Popen, PIPE
+from plot_cpi_curves import plot_cpi_curves, plot_legend
 
-if len(sys.argv) < 4:
+
+if len(sys.argv) < 2:
   print("Wrong number of arguments")
   sys.exit()
 
-num = sys.argv[1]
+for_slides = True
 dataset = "data_spec_q"
 #trace_prefix = ".qq100m"
 #trace_prefix = ".ac100m"
 trace_prefix = ".sp100m"
 
 benchmark_list = [
-  '503.bwaves_r',
-  '507.cactuBSSN_r',
-  '508.namd_r',
-  '510.parest_r',
-  '511.povray_r',
-  '519.lbm_r',
-  '521.wrf_r',
-  '526.blender_r',
-  '527.cam4_r',
-  '538.imagick_r',
-  '544.nab_r',
-  '549.fotonik3d_r',
-  '554.roms_r',
-  '997.specrand_fr',
-  '500.perlbench_r',
-  '502.gcc_r',
-  '505.mcf_r',
-  '520.omnetpp_r',
-  '523.xalancbmk_r',
-  '525.x264_r',
-  '531.deepsjeng_r',
-  '541.leela_r',
-  '548.exchange2_r',
-  '557.xz_r',
-  '999.specrand_ir'
+  '503.bwaves',
+  '507.cactuBSSN',
+  '508.namd',
+  '510.parest',
+  '511.povray',
+  '519.lbm',
+  '521.wrf',
+  '526.blender',
+  '527.cam4',
+  '538.imagick',
+  '544.nab',
+  '549.fotonik3d',
+  '554.roms',
+  '997.specrand\_f',
+  '500.perlbench',
+  '502.gcc',
+  '505.mcf',
+  '520.omnetpp',
+  '523.xalancbmk',
+  '525.x264',
+  '531.deepsjeng',
+  '541.leela',
+  '548.exchange2',
+  '557.xz',
+  '999.specrand\_i'
 ]
+
+first = True
 
 for benchmark in benchmark_list:
   args = [benchmark]
   for model in sys.argv[1:]:
-    ipc_name = dataset + '/' + benchmark + trace_prefix + '.tr_' + model + '.ipc'
+    if 'specrand' in benchmark:
+      benchmark_name = benchmark.replace('\\', '') + 'r'
+    else:
+      benchmark_name = benchmark + '_r'
+    ipc_name = dataset + '/' + benchmark_name + trace_prefix + '.tr_' + model + '.ipc'
     args.append(ipc_name)
-  plot_cpi_curves(args)
+  plot_cpi_curves(args, for_slides)
+  if not for_slides:
+    output_name = 'fig/' + benchmark_name[0:3] + '_cpis.pdf'
+    pdf_cmd = ['pdfcrop', output_name, output_name]
+    process = subprocess.call(pdf_cmd)
+  if first:
+    first = False
+    plot_legend(args, for_slides)
+    if not for_slides:
+      pdf_cmd = ['pdfcrop', 'fig/cpis_legend.pdf', 'fig/cpis_legend.pdf']
+      process = subprocess.call(pdf_cmd)
