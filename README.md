@@ -1,12 +1,16 @@
 # SimNet
 
-SimNet is a machine learning based computer architecture simulator that
-evaluates program performance by predicting the latency of executed
+SimNet is a machine learning (ML)-based computer architecture simulator that
+evaluates program performance by predicting the latencies of executed
 instructions.
+First, an ML-based instruction latency prediction framework that accounts for
+both static instruction properties and dynamic processor states is constructed.
+Then, a GPU-accelerated parallel simulator is implemented based on the proposed
+instruction latency predictor.
 More details can be found in our paper at
 [https://dl.acm.org/doi/10.1145/3530891](https://dl.acm.org/doi/10.1145/3530891).
-If you are interested in this work, we encourage you to check out our latest
-work PerfVec ([paper](https://arxiv.org/abs/2310.16792),
+If you are interested in SimNet, we encourage you to check out our latest work
+PerfVec ([paper](https://arxiv.org/abs/2310.16792),
 [code](https://github.com/PerfVec/PerfVec)), which can be considered as a more
 general version of SimNet.
 
@@ -76,6 +80,8 @@ or
 082820, v1.0: a stable version that works with datasets from O3CPU output that
 includes instruction, register, data access, instruction access, and page table
 walking information.
+
 051420: Fix the simulator bug that didn't generate context instruction
 relationship at runtime.
+
 050820: Init the repo.
