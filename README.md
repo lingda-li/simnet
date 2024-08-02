@@ -55,8 +55,9 @@ to prepare the training data.
 3. Make npy file: `python dp/2_Q-to-mmap.py --total-rows=<entry num> a.qqu`
 
 ##### Training model
-Follow the instructions inside the `ml` folder for training the model. The
-trained module would be used by simulator.
+Use the script `ml/train_qq_ddp_mul` folder to train the model.
+The trained module would be used by simulator.
+`CNN3_F` and `E1DNet` are the default models used in the paper.
 
 #### Step 2: Build the simulator
 Follow the instruction in `sim` folder to build the simulator.
